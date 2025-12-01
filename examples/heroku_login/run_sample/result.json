@@ -1,0 +1,62 @@
+{
+  "steps": [
+    {
+      "id": "s1",
+      "action": "navigate",
+      "status": "ok",
+      "selector": null,
+      "url": "https://the-internet.herokuapp.com/login"
+    },
+    {
+      "id": "s2",
+      "action": "fill",
+      "status": "ok",
+      "selector": "#username",
+      "url": null
+    },
+    {
+      "id": "s3",
+      "action": "fill",
+      "status": "ok",
+      "selector": "#password",
+      "url": null
+    },
+    {
+      "id": "s4",
+      "action": "click",
+      "status": "ok",
+      "selector": "button[type=\"submit\"]",
+      "url": null
+    },
+    {
+      "id": "s5",
+      "action": "wait",
+      "status": "ok",
+      "selector": "div.flash.success",
+      "url": null
+    },
+    {
+      "id": "s6",
+      "action": "screenshot",
+      "status": "ok",
+      "selector": null,
+      "url": null,
+      "output": "screenshots/heroku_login.png"
+    },
+    {
+      "id": "s7",
+      "action": "extract_dom",
+      "status": "ok",
+      "selector": null,
+      "url": null,
+      "output": "dom.html"
+    }
+  ],
+  "error": null,
+  "dry_run": false,
+  "completion": {
+    "success": true,
+    "complete": true,
+    "reason": "Browser actions completed successfully"
+  }
+}

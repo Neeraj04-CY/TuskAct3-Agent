@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: eikon_engine
+Version: 0.1.0
+Summary: Eikon Engine core runtime
+Requires-Python: >=3.10

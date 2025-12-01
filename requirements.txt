@@ -1,0 +1,37 @@
+# -------------------------
+# EIKON ENGINE Requirements
+# -------------------------
+
+# Core runtime
+python-dotenv>=1.0.1
+typing-extensions>=4.9.0
+pydantic>=2.8.0
+
+# LLM + Planning + Code generation
+openai>=1.37.0
+tiktoken>=0.7.0
+
+# Networking / Async
+httpx>=0.27.0
+aiohttp>=3.9.5
+anyio>=4.4.0
+uvloop>=0.19.0 ; sys_platform == "linux"
+
+# Memory / Embeddings / Vector DB
+chromadb>=0.5.0
+faiss-cpu>=1.8.0
+sentence-transformers>=2.7.0
+
+# Browser Automation (EIKON v3)
+playwright>=1.48.0
+
+# Logging and CLI
+loguru>=0.7.2
+rich>=13.7.1
+
+# Optional Sandboxed Code Execution (EIKON v6+)
+docker>=7.0.0
+
+# Tests
+pytest>=8.0.0
+pytest-asyncio>=0.23.6

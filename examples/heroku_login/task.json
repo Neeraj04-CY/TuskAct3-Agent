@@ -1,0 +1,11 @@
+{
+  "goal": "Login to the-internet.herokuapp.com/login using tomsmith/SuperSecretPassword!",
+  "actions": [
+    {"action": "navigate", "url": "https://the-internet.herokuapp.com/login"},
+    {"action": "fill", "selector": "#username", "value": "tomsmith"},
+    {"action": "fill", "selector": "#password", "value": "SuperSecretPassword!"},
+    {"action": "click", "selector": "#login"},
+    {"action": "wait", "selector": "#flash", "timeout": 5000},
+    {"action": "screenshot", "name": "heroku_login.png"}
+  ]
+}

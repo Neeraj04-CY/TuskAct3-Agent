@@ -1,0 +1,7 @@
+cli
+discovery
+memory
+skills
+strategist
+worker
+workflow

@@ -1,0 +1,9 @@
+{
+  "stores": {
+    "failures": "memory_failures",
+    "successes": "memory_successes",
+    "tools": "memory_tools",
+    "preferences": "memory_preferences"
+  },
+  "version": "0.1.0"
+}
