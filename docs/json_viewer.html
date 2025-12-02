@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EIKON Demo • JSON Viewer</title>
+    <link rel="stylesheet" href="assets/style.css" />
+    <style>
+      .viewer-shell {
+        max-width: 960px;
+        margin: 60px auto;
+        padding: 32px;
+        background: #ffffff;
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.15);
+      }
+      pre {
+        max-height: 520px;
+        overflow: auto;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 16px;
+        border-radius: 16px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .status {
+        margin-bottom: 12px;
+        color: #4b5563;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="brand">EIKON Engine</div>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="artifacts_viewer.html">Artifacts</a>
+        <a href="demo.md" target="_blank" rel="noopener">Docs</a>
+      </div>
+    </nav>
+    <div class="viewer-shell">
+      <h1>Plan JSON Viewer</h1>
+      <p class="status" id="status">Loading plan JSON…</p>
+      <pre id="json-output">{}</pre>
+      <div class="mt-4">
+        <a class="btn primary" href="artifacts/heroku_sample/result.json" target="_blank" rel="noopener">Open raw JSON</a>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const output = document.getElementById('json-output');
+        const statusEl = document.getElementById('status');
+        fetch('artifacts/heroku_sample/result.json', { cache: 'no-store' })
+          .then((resp) => {
+            if (!resp.ok) {
+              throw new Error('Failed to load JSON');
+            }
+            return resp.json();
+          })
+          .then((data) => {
+            statusEl.textContent = 'Loaded result.json from heroku_sample';
+            output.textContent = JSON.stringify(data, null, 2);
+          })
+          .catch((err) => {
+            statusEl.textContent = err.message;
+            output.textContent = '{}';
+          });
+      })();
+    </script>
+  </body>
+</html>

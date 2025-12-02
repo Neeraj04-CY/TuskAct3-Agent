@@ -1,0 +1,11 @@
+browser:
+  headless: true
+  slow_mo: 0
+  screenshot: true
+
+completion:
+  max_steps: 25
+  retry_limit: 3
+
+logging:
+  artifact_root: "artifacts"

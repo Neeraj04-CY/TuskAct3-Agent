@@ -1,0 +1,3 @@
+demo assets present: yes
+artifact sample: artifacts/heroku_sample/result.json
+UI v2: assets OK

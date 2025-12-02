@@ -3,54 +3,84 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
-from src.memory.memory_manager import MemoryManager
-from src.strategist.strategist_v1 import Strategist
-from src.task_orchestrator import TaskOrchestrator
-from src.workers.browser import BrowserWorker
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from eikon_engine.browser.worker_v1 import BrowserWorkerV1
+from eikon_engine.pipelines.browser_pipeline import run_browser_goal
 
 
-async def run_direct_worker(actions: list[Dict[str, str]], *, allow_sensitive: bool) -> None:
-    worker = BrowserWorker()
-    payload = await worker.run(json.dumps(actions), prev_results={}, dry_run=True, allow_sensitive=allow_sensitive)
-    print("Dry-run result:")
-    print(json.dumps(payload, indent=2))
+def _build_plan(actions: list[Dict[str, Any]], goal: str) -> Dict[str, Any]:
+    return {
+        "plan_id": "demo-plan",
+        "goal": goal,
+        "tasks": [
+            {
+                "id": "task_1",
+                "tool": "BrowserWorker",
+                "inputs": {"actions": actions},
+                "depends_on": [],
+                "bucket": "demo",
+            }
+        ],
+    }
+
+
+async def _execute_manual_worker(
+    actions: list[Dict[str, Any]],
+    *,
+    goal: str,
+    enable_playwright: bool,
+    allow_external: bool,
+) -> Dict[str, Any]:
+    worker = BrowserWorkerV1(
+        settings={"browser": {"allow_external": allow_external}},
+        enable_playwright=enable_playwright,
+    )
+    plan = _build_plan(actions, goal)
+    summary = await worker.run_plan(plan, goal=goal)
+    await worker.close()
+    return summary
+
+
+async def run_direct_worker(actions: list[Dict[str, Any]], *, allow_external: bool) -> None:
+    goal = "Demo plan"
+    dry_summary = await _execute_manual_worker(
+        actions,
+        goal=goal,
+        enable_playwright=False,
+        allow_external=allow_external,
+    )
+    print("Dry-run summary (no Playwright):")
+    print(json.dumps(dry_summary, indent=2))
 
     if os.getenv("PLAYWRIGHT_BYPASS_DRY_RUN", "0") == "1":
-        print("\nPLAYWRIGHT_BYPASS_DRY_RUN set – executing real browser session...")
-        live_payload = await worker.run(
-            json.dumps(actions),
-            prev_results={},
-            dry_run=False,
-            allow_sensitive=allow_sensitive,
+        print("\nPLAYWRIGHT_BYPASS_DRY_RUN set – executing with Playwright...")
+        live_summary = await _execute_manual_worker(
+            actions,
+            goal=goal,
+            enable_playwright=True,
+            allow_external=allow_external,
         )
-        print(json.dumps(live_payload, indent=2))
+        print(json.dumps(live_summary, indent=2))
     else:
-        print("\nSet PLAYWRIGHT_BYPASS_DRY_RUN=1 to execute the live run.")
+        print("\nSet PLAYWRIGHT_BYPASS_DRY_RUN=1 to launch a real browser session.")
 
 
 async def run_strategist_demo(goal: str) -> None:
-    worker_registry = {
-        "browser": BrowserWorker,
-        "WorkerA": BrowserWorker,
-        "WorkerB": BrowserWorker,
-        "WorkerC": BrowserWorker,
-        "WorkerD": BrowserWorker,
-    }
-    strategist = Strategist(worker_registry=worker_registry, memory_manager=MemoryManager())
-    orchestrator = TaskOrchestrator(strategist=strategist)
-
-    payload = await orchestrator.execute(goal, max_iters=1)
-    print("\nTaskOrchestrator transcript:")
-    print(json.dumps(payload, indent=2))
-    completion = payload.get("completion")
-    if completion and completion.get("complete"):
+    result = await run_browser_goal(goal)
+    print("\nPlanner → Strategist → Orchestrator transcript:")
+    print(json.dumps(result, indent=2))
+    completion = result.get("completion") or {}
+    if completion.get("complete"):
         print(f"Workflow complete: {completion.get('reason', 'success')}")
     else:
-        print(f"Workflow status: {payload.get('status')}")
-    if os.getenv("PLAYWRIGHT_BYPASS_DRY_RUN", "0") != "1":
+        print("Workflow incomplete; inspect transcript for details.")
         print("BrowserWorker stayed in dry-run mode. Set PLAYWRIGHT_BYPASS_DRY_RUN=1 for live automation.")
 
 
@@ -58,7 +88,10 @@ async def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     demo_page = repo_root / "examples" / "demo_local_testsite" / "login.html"
     demo_url = demo_page.resolve().as_uri()
-    allow_sensitive = os.getenv("EIKON_ALLOW_SENSITIVE", "0") == "1"
+    allow_external_env = os.getenv("EIKON_ALLOW_EXTERNAL")
+    if allow_external_env is None:
+        allow_external_env = os.getenv("EIKON_ALLOW_SENSITIVE", "0")
+    allow_external = allow_external_env == "1"
 
     actions = [
         {"action": "navigate", "url": demo_url},
@@ -69,7 +102,7 @@ async def main() -> None:
         {"action": "extract_dom"},
     ]
 
-    await run_direct_worker(actions, allow_sensitive=allow_sensitive)
+    await run_direct_worker(actions, allow_external=allow_external)
 
     goal = (
         f"Navigate to {demo_url} and log in. "

@@ -1,7 +1,7 @@
 [project]
 name = "eikon_engine"
-version = "0.1.0"
-description = "Eikon Engine core runtime"
+version = "0.2.0"
+description = "EIKON Engine browser-agent framework"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -9,5 +9,3 @@ dependencies = []
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["src"]

@@ -155,16 +155,16 @@ See inline module docstrings for details.
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the CLI
-python -m src.cli.main "Scrape the latest AI news and summarize it."
+# Run the demo goal
+python scripts/run_demo_goal.py "Scrape the latest AI news and summarize it."
 ```
 
-The CLI will:
+This script will:
 
-1. Call the **Workflow Engine** with your natural language task.
-2. Internally call the **Strategist** to create a `WorkflowObject`.
-3. Execute via the **Worker** (and in later versions, use Memory + Skills + Discovery).
-4. Stream logs and produce a final result.
+1. Load Planner v3 and Strategist defaults from `config/settings.yaml`.
+2. Generate a BrowserWorker plan for your natural language task.
+3. Execute it end-to-end with `BrowserWorkerV1` (Playwright when enabled).
+4. Persist DOM snapshots, screenshots, and a `run_summary.json` inside `runs/<timestamp>/`.
 
 ---
 
@@ -195,6 +195,43 @@ python scripts/run_browser_demo.py
 - The Strategist demo issues natural-language instructions that the BrowserWorker converts into navigate/fill/click operations.
 
 The script prints the direct worker output first and then the TaskOrchestrator transcript so you can inspect both flows side by side.
+
+---
+
+## Live Demo
+
+GitHub Pages can publish the static `docs/` site directly from this repo. Once enabled, share:
+
+```
+https://<github-username>.github.io/<repo-name>/
+```
+
+GitHub automatically serves the `docs/index.html` landing page plus all artifacts under `docs/artifacts/`.
+
+## How to Reproduce the Demo Locally
+
+Use a single shell session and run the exact commands below:
+
+```bash
+# Windows PowerShell
+python -m venv .venv && .venv\Scripts\activate
+
+# macOS/Linux
+python -m venv .venv && source .venv/bin/activate
+
+pip install -r requirements.txt
+playwright install
+python scripts/run_demo_goal.py "Log in to https://the-internet.herokuapp.com/login with tomsmith / SuperSecretPassword! and capture the Secure Area screenshot."
+```
+
+Artifacts will be written to `runs/<timestamp>/`. Copy the desired run into `docs/artifacts/heroku_sample/` (or any new slug) before pushing so GitHub Pages publishes the same evidence anyone can reproduce locally.
+
+## What to Show to a Recruiter / YC Interview
+
+- Screenshot from `docs/artifacts/heroku_sample/heroku_login.png` displayed on the live site.
+- Plan or run trace JSON (`docs/artifacts/heroku_sample/result.json`).
+- `runs/<timestamp>/run_summary.json` or CLI log snippet proving end-to-end autonomy.
+- `pytest -q` output demonstrating the safety net before the demo.
 
 ---
 

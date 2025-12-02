@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EIKON Engine Demo</title>
+    <link rel="stylesheet" href="assets/style.css" />
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="brand">EIKON Engine</div>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="artifacts_viewer.html">Artifacts</a>
+        <a href="demo.md" target="_blank" rel="noopener">Docs</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <p class="eyebrow">Autonomous Planning • Browser Worker • Strategist</p>
+      <h1>Premium Demo Experience</h1>
+      <p class="subtitle">
+        Modern cards that highlight how the EIKON Engine navigates, logs in, and extracts proof with execution-aware safety nets.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="json_viewer.html">View JSON Trace</a>
+        <a class="btn secondary" href="artifacts_viewer.html">Browse Artifacts</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="cards-grid">
+        <article class="demo-card">
+          <img src="artifacts/heroku_sample/heroku_login.png" alt="Heroku login screenshot" />
+          <div class="card-body">
+            <h2>Open Login</h2>
+            <p>Navigate to the secure login page, validate the DOM, and stage the workflow for credential entry.</p>
+            <div class="plan-meta">{"plan": "navigate ➝ wait ➝ screenshot"}</div>
+            <div class="card-actions">
+              <a class="btn primary" href="json_viewer.html">View Full Plan JSON</a>
+              <a class="btn ghost" href="artifacts_viewer.html">View Artifacts</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="demo-card">
+          <img src="artifacts/heroku_sample/heroku_login.png" alt="Login form filled" />
+          <div class="card-body">
+            <h2>Perform Login</h2>
+            <p>Fill username + password fields with resilience, click submit, and confirm the flash success banner.</p>
+            <div class="plan-meta">{"plan": "fill #username,#password ➝ click submit"}</div>
+            <div class="card-actions">
+              <a class="btn primary" href="json_viewer.html">View Full Plan JSON</a>
+              <a class="btn ghost" href="artifacts_viewer.html">View Artifacts</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="demo-card">
+          <img src="artifacts/heroku_sample/heroku_login.png" alt="DOM extract" />
+          <div class="card-body">
+            <h2>Extract Content</h2>
+            <p>Capture screenshots and DOM evidence so Strategist pipelines can grade success and feed memory.</p>
+            <div class="plan-meta">{"plan": "wait success ➝ screenshot ➝ extract_dom"}</div>
+            <div class="card-actions">
+              <a class="btn primary" href="json_viewer.html">View Full Plan JSON</a>
+              <a class="btn ghost" href="artifacts_viewer.html">View Artifacts</a>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="run-box">
+        <h3>Run locally in one shell</h3>
+        <p>
+          Follow the <a href="../README.md" target="_blank" rel="noopener">README guide</a> then:
+        </p>
+        <ol>
+          <li>Activate the project virtual environment.</li>
+          <li>Run <code>python -m src.controller.cli --goal "Log in" --execute</code>.</li>
+          <li>Copy the latest <code>runs/&lt;timestamp&gt;</code> folder into <code>docs/artifacts/&lt;slug&gt;</code> for publishing.</li>
+        </ol>
+        <p>Preview locally via <code>python -m http.server 8000 --directory docs</code> then open <code>http://localhost:8000</code>.</p>
+      </section>
+    </main>
+    <footer>© EIKON Engine • GitHub Pages ready</footer>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+# Bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Test & coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local run outputs
+runs/
+artifacts/
+tmp_run/
+
+# Tools
+.DS_Store
+Thumbs.db

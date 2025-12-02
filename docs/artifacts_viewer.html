@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EIKON Demo • Artifacts Viewer</title>
+    <link rel="stylesheet" href="assets/style.css" />
+    <style>
+      .artifacts-shell {
+        max-width: 1100px;
+        margin: 50px auto;
+        padding: 24px;
+      }
+      .artifact-card {
+        background: #ffffff;
+        border-radius: 20px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+        padding: 24px;
+        margin-bottom: 32px;
+      }
+      .artifact-card h2 {
+        margin-top: 0;
+      }
+      .preview {
+        margin-top: 16px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .preview pre {
+        margin: 0;
+        max-height: 360px;
+        overflow: auto;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 16px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.85rem;
+      }
+      .preview img {
+        width: 100%;
+        display: block;
+      }
+      .preview iframe {
+        width: 100%;
+        height: 420px;
+        border: 0;
+        background: white;
+      }
+      .artifact-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="brand">EIKON Engine</div>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="artifacts_viewer.html" aria-current="page">Artifacts</a>
+        <a href="demo.md" target="_blank" rel="noopener">Docs</a>
+      </div>
+    </nav>
+    <div class="artifacts-shell">
+      <h1>Artifact Browser</h1>
+      <p class="subtitle">
+        Everything below is served statically from <code>docs/artifacts/heroku_sample/</code>. No frameworks, just fetch API and iframes.
+      </p>
+      <div id="artifact-list"></div>
+    </div>
+    <script>
+      const ARTIFACTS = [
+        { name: 'result.json', type: 'json', description: 'Plan result trace' },
+        { name: 'dom.html', type: 'html', description: 'Rendered DOM snapshot' },
+        { name: 'heroku_login.png', type: 'image', description: 'Screenshot evidence' }
+      ];
+
+      const container = document.getElementById('artifact-list');
+
+      function createButton(href, label) {
+        const btn = document.createElement('a');
+        btn.href = href;
+        btn.textContent = label;
+        btn.className = 'btn ghost';
+        btn.target = '_blank';
+        btn.rel = 'noopener';
+        return btn;
+      }
+
+      function renderArtifactCard(artifact) {
+        const card = document.createElement('article');
+        card.className = 'artifact-card';
+        const title = document.createElement('h2');
+        title.textContent = artifact.name;
+        card.appendChild(title);
+        const info = document.createElement('p');
+        info.textContent = artifact.description;
+        card.appendChild(info);
+
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        card.appendChild(preview);
+
+        const actions = document.createElement('div');
+        actions.className = 'artifact-actions';
+        actions.appendChild(createButton(`artifacts/heroku_sample/${artifact.name}`, 'Open file'));
+        card.appendChild(actions);
+
+        if (artifact.type === 'json') {
+          fetch(`artifacts/heroku_sample/${artifact.name}`, { cache: 'no-store' })
+            .then((resp) => resp.json())
+            .then((data) => {
+              const pre = document.createElement('pre');
+              pre.textContent = JSON.stringify(data, null, 2);
+              preview.appendChild(pre);
+            })
+            .catch(() => {
+              preview.textContent = 'Unable to load JSON';
+            });
+        } else if (artifact.type === 'image') {
+          const img = document.createElement('img');
+          img.src = `artifacts/heroku_sample/${artifact.name}`;
+          img.alt = artifact.description;
+          preview.appendChild(img);
+        } else if (artifact.type === 'html') {
+          const frame = document.createElement('iframe');
+          frame.src = `artifacts/heroku_sample/${artifact.name}`;
+          preview.appendChild(frame);
+        }
+
+        return card;
+      }
+
+      ARTIFACTS.forEach((artifact) => container.appendChild(renderArtifactCard(artifact)));
+    </script>
+  </body>
+</html>
