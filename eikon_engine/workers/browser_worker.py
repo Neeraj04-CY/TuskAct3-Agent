@@ -16,6 +16,7 @@ from eikon_engine.core.completion import build_completion
 from eikon_engine.core.types import BrowserAction, BrowserWorkerResult
 from eikon_engine.utils import dom_utils, vision_utils
 from eikon_engine.utils.logging_utils import ArtifactLogger
+from eikon_engine.utils.safety_guardrails import SafetyGuardrails
 
 try:  # pragma: no cover - optional dependency
     from playwright.async_api import async_playwright
@@ -60,6 +61,8 @@ class BrowserWorker:
         self.enable_playwright = enable_playwright if enable_playwright is not None else async_playwright is not None
         self._session: BrowserSession | None = None
         self._http_client = httpx.AsyncClient(follow_redirects=True)
+        guard_settings = worker_settings.get("guardrails", {})
+        self.guardrails = SafetyGuardrails(guard_settings)
 
     async def execute(self, metadata: Dict[str, Any]) -> BrowserWorkerResult:
         """Execute the provided browser action sequence."""
@@ -70,22 +73,37 @@ class BrowserWorker:
         dom_snapshot: Optional[str] = None
         layout_graph: Optional[str] = None
         error: Optional[str] = None
+        failure_dom_path: Optional[str] = None
+        failure_screenshot_path: Optional[str] = None
 
         session = await self._ensure_session()
+        current_url: Optional[str] = None
         for idx, action in enumerate(actions, start=1):
             step_entry = {"id": f"s{idx}", **action}
             steps.append(step_entry)
+            allowed, block_reason = self.guardrails.check(action, current_url=current_url)
+            if not allowed:
+                step_entry["status"] = "blocked"
+                step_entry["block_reason"] = block_reason
+                continue
             try:
                 dom_snapshot, layout_graph, screenshot_path = await self._perform_action(
                     action,
                     session=session,
                     step_index=idx,
                 )
+                if (action.get("action") or "").lower() == "navigate" and action.get("url"):
+                    current_url = str(action.get("url"))
                 if screenshot_path:
                     screenshots.append(screenshot_path)
             except Exception as exc:  # noqa: BLE001
                 error = str(exc)
                 step_entry["status"] = "error"
+                failure_dom_path, failure_screenshot_path = await self._capture_failure_artifacts(
+                    session=session,
+                    step_index=idx,
+                    last_dom=dom_snapshot,
+                )
                 break
             else:
                 step_entry["status"] = "ok"
@@ -102,6 +120,8 @@ class BrowserWorker:
             "layout_graph": layout_graph,
             "completion": completion,
             "error": error,
+            "failure_dom_path": failure_dom_path,
+            "failure_screenshot_path": failure_screenshot_path,
         }
 
     async def _perform_action(
@@ -130,6 +150,14 @@ class BrowserWorker:
                 completion=None,
             )
             return None, None, None
+        if kind in {"wait_for", "wait_for_selector", "dom_presence_check"}:
+            await self._log_trace(
+                step_index=step_index,
+                action_name=kind,
+                url=None,
+                completion=None,
+            )
+            return None, None, None
         if kind == "screenshot" and self.screenshot_enabled:
             screenshot_path = await self._capture_screenshot(
                 session=session,
@@ -152,6 +180,14 @@ class BrowserWorker:
             else:
                 layout_content = dom_utils.build_layout_graph(dom_content)
             return dom_content, layout_content, None
+        if kind in {"retry", "reload_if_failed"}:
+            await self._log_trace(
+                step_index=step_index,
+                action_name=kind,
+                url=None,
+                completion={"status": "ok", "info": "noop"},
+            )
+            return None, None, None
         raise ValueError(f"Unsupported action: {kind}")
 
     async def _handle_navigation(
@@ -224,10 +260,32 @@ class BrowserWorker:
         if self.logger:
             path = self.logger.save_screenshot(data, step_index=step_index, name=name)
             return str(path)
-        file_path = Path("artifacts") / name
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path = self._ensure_fallback_dir(step_index) / name
         file_path.write_bytes(data)
         return str(file_path)
+
+    async def _capture_failure_artifacts(
+        self,
+        *,
+        session: BrowserSession | None,
+        step_index: int,
+        last_dom: Optional[str],
+    ) -> tuple[Optional[str], Optional[str]]:
+        html_snapshot: Optional[str] = None
+        if session:
+            try:
+                html_snapshot = await session.page.content()
+            except Exception:  # noqa: BLE001 - best-effort capture
+                html_snapshot = None
+        if not html_snapshot:
+            html_snapshot = last_dom or "<html></html>"
+        dom_path = self._save_dom_artifact(html_snapshot, step_index=step_index, name="failure_dom.html")
+        screenshot_path = await self._capture_screenshot(
+            session=session,
+            action={"name": f"failure_step_{step_index:03d}.png"},
+            step_index=step_index,
+        )
+        return dom_path, screenshot_path
 
     def _record_dom(self, html: str, step_index: int) -> tuple[str, str]:
         layout = dom_utils.build_layout_graph(html)
@@ -235,6 +293,19 @@ class BrowserWorker:
             self.logger.save_dom(html, step_index=step_index)
             self.logger.save_layout_graph(layout, step_index=step_index)
         return html, layout
+
+    def _save_dom_artifact(self, html: str, *, step_index: int, name: str) -> str:
+        if self.logger:
+            path = self.logger.save_dom(html, step_index=step_index, name=name)
+            return str(path)
+        file_path = self._ensure_fallback_dir(step_index) / name
+        file_path.write_text(html, encoding="utf-8")
+        return str(file_path)
+
+    def _ensure_fallback_dir(self, step_index: int) -> Path:
+        step_dir = Path("artifacts") / f"step_{step_index:03d}"
+        step_dir.mkdir(parents=True, exist_ok=True)
+        return step_dir
 
     async def _log_trace(
         self,

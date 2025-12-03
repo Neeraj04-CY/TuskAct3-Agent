@@ -56,3 +56,12 @@ class RunSummary(TypedDict):
     traces: List[RunTrace]
     first_failure_type: str | None
     run_output: str
+
+
+class FailureReport(TypedDict, total=False):
+    """Minimal payload describing a failed browser step."""
+
+    step_id: str
+    error: str
+    dom_excerpt: str
+    worker_trace: Dict[str, Any]

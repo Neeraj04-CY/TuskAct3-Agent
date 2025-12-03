@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  quality:
+    name: lint + tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Black
+        run: black --check .
+      - name: isort
+        run: isort --check-only .
+      - name: mypy
+        run: mypy eikon_engine
+      - name: pytest
+        run: pytest -q
+
+  docs:
+    name: smoke demo + docs artifact
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Smoke autonomy demo (dry-run)
+        env:
+          EIKON_ALLOW_EXTERNAL: "0"
+          EIKON_ALLOW_SENSITIVE: "0"
+          PLAYWRIGHT_BYPASS_DRY_RUN: "0"
+        run: |
+          python run_autonomy_demo.py --summary tmp_run/ci_autonomy.json
+          test -f tmp_run/ci_autonomy.json
+      - name: Refresh sample artifacts
+        run: |
+          python scripts/make_demo_gif.py --run docs/heroku_sample --output docs/assets/demo.gif --fps 2
+          python scripts/generate_run_summary.py --run docs/heroku_sample
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

@@ -33,6 +33,8 @@ class BrowserWorkerResult(TypedDict):
     layout_graph: Optional[str]
     completion: CompletionPayload
     error: Optional[str]
+    failure_dom_path: Optional[str]
+    failure_screenshot_path: Optional[str]
 
 
 class Worker(Protocol):

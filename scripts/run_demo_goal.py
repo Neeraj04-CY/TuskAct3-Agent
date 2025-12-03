@@ -1,4 +1,4 @@
-"""Run a full Planner → Strategist → Orchestrator → BrowserWorkerV1 loop."""
+"""Run a full Planner v3 → AdaptiveController → BrowserWorkerV1 loop."""
 
 from __future__ import annotations
 
@@ -54,14 +54,18 @@ async def run(goal: str, settings_path: Path | None) -> Dict[str, Any]:
 def print_summary(result: Dict[str, Any]) -> None:
     completion = result.get("completion", {})
     artifacts = result.get("artifacts", {})
-    transcript = result.get("steps", [])
     goal = result.get("goal") or "goal"
+    history = result.get("history") or []
+    final_summary = result.get("final_summary") or {}
+    steps_executed = len(final_summary.get("traces") or [])
+    attempts = result.get("attempts", len(history))
 
     print("\n=== Demo Goal Complete ===")
     print(f"Goal: {goal}")
     print(f"Status: {'✅ complete' if completion.get('complete') else '⚠️ incomplete'}")
     print(f"Reason: {completion.get('reason', 'unknown')}")
-    print(f"Steps executed: {len(transcript)}")
+    print(f"Attempts: {attempts}")
+    print(f"Steps executed (last run): {steps_executed}")
     if artifacts:
         print("Artifacts:")
         print(f"  Base dir : {artifacts.get('base_dir')}")

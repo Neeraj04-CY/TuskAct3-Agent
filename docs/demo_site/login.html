@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Autonomous Recovery Demo</title>
+    <script defer src="demo.js"></script>
+    <style>
+      body {
+        background: #f4f6fb;
+        color: #0f172a;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+      }
+      header {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 1.5rem 2rem;
+      }
+      main {
+        padding: 2rem;
+        max-width: 480px;
+        margin: 0 auto;
+      }
+      form {
+        background: #ffffff;
+        padding: 2rem;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15);
+      }
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        border-radius: 10px;
+        border: 1px solid #cbd5f5;
+        font-size: 1rem;
+      }
+      button {
+        width: 100%;
+        padding: 0.85rem;
+        border: none;
+        border-radius: 10px;
+        background: #6366f1;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+      button:hover {
+        background: #4f46e5;
+      }
+      .cookie-banner {
+        display: none;
+        position: sticky;
+        top: 0;
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 1rem;
+        z-index: 10;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .cookie-banner.show {
+        display: flex;
+      }
+      .cookie-banner button {
+        width: auto;
+        background: #22c55e;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Autonomous Recovery Demo</h1>
+      <p>Selectors mutate. Cookies appear. Buttons delay. Can your agent adapt?</p>
+    </header>
+
+    <div id="cookie-banner" class="cookie-banner" data-testid="cookie-banner">
+      <span>This site uses cookies to personalize content.</span>
+      <button id="dismiss-cookie" data-testid="dismiss-cookie">Dismiss</button>
+    </div>
+
+    <main>
+      <form id="login-form">
+        <label for="email-input">Email</label>
+        <input id="email-input" name="email" type="email" value="demo@example.com" />
+
+        <label for="password-input">Password</label>
+        <input id="password-input" name="password" type="password" value="hunter2" />
+
+        <button id="loginButton" type="submit" data-role="primary-login">Log In</button>
+      </form>
+    </main>
+  </body>
+</html>

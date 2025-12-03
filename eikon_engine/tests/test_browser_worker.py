@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from eikon_engine.utils.logging_utils import ArtifactLogger
@@ -46,3 +48,21 @@ async def test_browser_worker_screenshot(tmp_path, monkeypatch):
     ]
     result = await worker.execute({"action": actions})
     assert any(path.endswith("demo.png") for path in result["screenshots"])
+
+
+@pytest.mark.asyncio
+async def test_browser_worker_failure_artifacts(tmp_path, monkeypatch):
+    logger = ArtifactLogger(root=tmp_path, prefix="test")
+    worker = BrowserWorker(settings={}, logger=logger, enable_playwright=False)
+
+    async def fake_get(url: str):  # type: ignore[override]
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(worker._http_client, "get", fake_get)
+
+    result = await worker.execute({"action": {"action": "navigate", "url": "https://example.com"}})
+    assert result["error"] is not None
+    assert result["failure_dom_path"] is not None
+    assert Path(result["failure_dom_path"]).exists()
+    assert result["failure_screenshot_path"] is not None
+    assert Path(result["failure_screenshot_path"]).exists()
