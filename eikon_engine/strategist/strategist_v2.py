@@ -7,6 +7,7 @@ import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING
 
 from eikon_engine.core.completion import build_completion
 from eikon_engine.core.strategist import StrategyStep
@@ -23,6 +24,10 @@ from .self_repair import SelfRepairEngine
 from .state_detector import detect_state, find_cookie_popup
 from eikon_engine.strategist_v2.navigator_reward_model import compute_reward
 from eikon_engine.strategist_v2.confidence_scorer import score_decision
+from eikon_engine.skills.skill_registry import SkillRegistry
+
+if TYPE_CHECKING:
+    from eikon_engine.stability import StabilityMonitor
 
 
 PlanDict = Dict[str, Any]
@@ -62,6 +67,8 @@ class StrategistBase:
         self._selector_bias: str = "css"
         self._anticipate_repair = False
         self._behavior_difficulty = 0.5
+        self._stability_monitor: "StabilityMonitor | None" = None
+        self._skill_registry = SkillRegistry
 
     async def initialize(self, goal: str) -> None:
         self._goal = goal
@@ -75,6 +82,7 @@ class StrategistBase:
         self._last_reward = 0.0
         self._confidence_state = None
         self._recovery_severity = 0
+        self._login_flow_triggered = False
         if self.self_repair:
             self.self_repair.reset()
         self._adaptive_plan = None
@@ -86,6 +94,9 @@ class StrategistBase:
 
     def has_next(self) -> bool:
         return self._cursor < len(self._steps)
+
+    def attach_stability_monitor(self, monitor: "StabilityMonitor | None") -> None:
+        self._stability_monitor = monitor
 
     def peek_step(self) -> StepMeta:
         if not self.has_next():
@@ -211,6 +222,33 @@ class StrategistBase:
             self._cursor = 0
         self._append_trace("goal_chain_start", goal=self._goal, remaining=len(self._goal_queue))
 
+    def finalize_run(
+        self,
+        run_ctx: RunContext,
+        completion: CompletionPayload,
+        duration_seconds: float,
+        artifacts: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not self._stability_monitor:
+            return None
+        artifact_base = None
+        if artifacts:
+            artifact_base = artifacts.get("base_dir")
+        report = self._stability_monitor.evaluate_run(
+            goal=self._goal,
+            completion=completion,
+            run_context=run_ctx,
+            strategist_trace=self.run_trace,
+            duration_seconds=duration_seconds,
+            artifact_base=artifact_base,
+        )
+        fingerprint = run_ctx.get("current_fingerprint")
+        if fingerprint:
+            metrics = report.get("metrics") or {}
+            self.agent_memory.store_stability(fingerprint, metrics)
+        run_ctx["stability_summary"] = report
+        return report
+
 
 class StrategistV2(StrategistBase):
     """Strategist that adapts after every worker step using DOM signals."""
@@ -232,6 +270,7 @@ class StrategistV2(StrategistBase):
         self._failure_counts: Dict[str, int] = {}
         self._last_url: str = ""
         self._recovery_counts: Dict[str, int] = {}
+        self._login_flow_triggered = False
 
     def detect_state(self, dom: str, url: Optional[str] = None) -> Dict[str, Any]:
         state = detect_state(dom, url)
@@ -249,6 +288,10 @@ class StrategistV2(StrategistBase):
             run_ctx.pop("_behavior_replan_logged", None)
         run_ctx["current_fingerprint"] = self._page_fingerprint(run_ctx.get("current_url"), dom)
         run_ctx.setdefault("planner_events", [])
+        payload = planned_step.get("action_payload", {})
+        action = (payload.get("action") or "").lower()
+        if action == "dom_presence_check" and state.get("mode") == "login_page":
+            self._inject_login_flow(planned_step)
         intent = state.get("intent")
         if intent:
             run_ctx.setdefault("page_intents", []).append({"intent": getattr(intent, "intent", "unknown"), "confidence": getattr(intent, "confidence", 0.0)})
@@ -271,20 +314,27 @@ class StrategistV2(StrategistBase):
         interference = detect_interference(dom, state.get("features"))
         if interference:
             self._insert_interference_actions(interference, planned_step)
-        payload = planned_step.get("action_payload", {})
+        completion = step_outcome.get("completion") or {}
+        step_failed = bool(step_outcome.get("error") or not completion.get("complete", True))
         selector = payload.get("selector")
-        action = (payload.get("action") or "").lower()
         features = state.get("features")
+        is_cookie_step = planned_step.get("source") == "cookie_popup"
         if selector and action in {"click", "fill", "dom_presence_check"}:
             features = features or extract_dom_features(dom)
             selector_missing = not selector_in_dom(selector, dom)
-            if selector_missing or self._anticipate_repair:
+            navigated_away = bool(url and self._last_url and url != self._last_url)
+            anticipatory = self._anticipate_repair and not navigated_away
+            if navigated_away and selector_missing:
+                selector_missing = False
+            if selector_missing or anticipatory:
                 repair = self.apply_micro_repair(planned_step, features)
                 if repair.get("patched"):
-                    self._queue_repair_step(planned_step, repair)
+                    if is_cookie_step:
+                        self._apply_cookie_popup_patch(planned_step, repair)
+                    else:
+                        self._queue_repair_step(planned_step, repair)
         self._process_reward_signal(run_ctx, planned_step, dom, state)
         self._apply_behavior_prediction(run_ctx, run_ctx.get("current_fingerprint", ""), planned_step.get("step_id"))
-        completion = step_outcome.get("completion") or {}
         failure_reason = step_outcome.get("error") or completion.get("reason")
         failure_flag = bool(step_outcome.get("error") or (completion and not completion.get("complete", True)))
         recent_failure: Optional[str] = None
@@ -295,6 +345,8 @@ class StrategistV2(StrategistBase):
         elif self._confidence_state and self._confidence_state.get("band") == "low":
             self.on_failure_detected({"step_id": planned_step.get("step_id"), "reason": "low_confidence"})
             self._attempt_self_repair(run_ctx, planned_step, dom, "low_confidence")
+            recent_failure = "low_confidence"
+        self._apply_skill_suggestions(run_ctx, state, recent_failure, planned_step)
         if action == "navigate" and url and payload.get("url") and payload.get("url") != url:
             run_ctx.setdefault("redirects", []).append({"from": payload.get("url"), "to": url})
         self._last_url = url or self._last_url
@@ -396,6 +448,48 @@ class StrategistV2(StrategistBase):
         for subgoal in prediction.get("recommended_subgoals", []):
             if subgoal not in suggestions:
                 suggestions.append(subgoal)
+
+    def _apply_skill_suggestions(
+        self,
+        run_ctx: RunContext,
+        state: Dict[str, Any],
+        failure_reason: Optional[str],
+        planned_step: StepMeta,
+    ) -> None:
+        registry = getattr(self, "_skill_registry", None)
+        if not registry:
+            return
+        state_payload = {
+            "mode": state.get("mode"),
+            "intent": getattr(state.get("intent"), "intent", state.get("intent")),
+            "difficulty": self._behavior_difficulty,
+            "fingerprint": run_ctx.get("current_fingerprint"),
+            "active_subgoal": run_ctx.get("active_plan_target"),
+            "missing_fields": state.get("missing_fields") or run_ctx.get("missing_fields"),
+            "dom_fingerprint": run_ctx.get("current_fingerprint"),
+        }
+        failure_payload = {"reason": failure_reason} if failure_reason else None
+        suggestions = registry.suggestions(state_payload, failure_payload)
+        if not suggestions:
+            return
+        subgoals = suggestions.get("subgoals") or []
+        repairs = suggestions.get("repairs") or []
+        if subgoals:
+            skill_subgoals = run_ctx.setdefault("suggested_subgoals", [])
+            for suggestion in subgoals:
+                if suggestion not in skill_subgoals:
+                    skill_subgoals.append(suggestion)
+        if repairs:
+            run_ctx.setdefault("skill_repair_suggestions", []).extend(repairs)
+        events = suggestions.get("skills") or []
+        if events:
+            skill_log = run_ctx.setdefault("skills", [])
+            for entry in events:
+                skill_log.append({
+                    **entry,
+                    "step_id": planned_step.get("step_id"),
+                    "failure": failure_reason,
+                })
 
     def _apply_difficulty_bias(self, difficulty: float) -> None:
         if difficulty >= 0.8:
@@ -629,28 +723,20 @@ class StrategistV2(StrategistBase):
         count = self._recovery_counts.get(step_id, 0) + 1
         self._recovery_counts[step_id] = count
         run_ctx.setdefault("recovery_counts", {})[step_id] = count
-        effective_count = max(count, self._recovery_severity + 1)
-        difficulty = run_ctx.get("behavior_difficulty", self._behavior_difficulty)
-        if difficulty >= 0.9:
-            effective_count = max(effective_count, 3)
-        elif difficulty >= 0.75:
-            effective_count = max(effective_count, 2)
-        elif difficulty <= 0.35 and effective_count > 1:
-            effective_count -= 1
-        if effective_count == 1:
+        target_url = run_ctx.get("current_url") or planned_step.get("action_payload", {}).get("url")
+        if count == 1:
             actions = [{"action": "reload_if_failed", "name": f"reload_after_{step_id}"}]
             stage = "reload"
-        elif effective_count == 2:
-            target_url = run_ctx.get("current_url") or planned_step.get("action_payload", {}).get("url")
+        elif count == 2:
             if target_url:
                 actions = [{"action": "navigate", "url": target_url, "name": f"revisit_{step_id}"}]
             else:
                 actions = [{"action": "extract_dom", "name": f"snapshot_{step_id}"}]
             stage = "navigate"
         else:
+            actions = [{"action": "extract_dom", "name": f"snapshot_{step_id}"}]
+            stage = "extract_dom"
             run_ctx["force_replan"] = True
-            self._append_trace("progressive_recovery", stage="replan", step_id=step_id, count=count)
-            return
         self.insert_steps(actions, bucket=planned_step.get("bucket"), tag="progressive_recovery")
         self._append_trace("progressive_recovery", stage=stage, step_id=step_id, count=count)
 
@@ -679,6 +765,20 @@ class StrategistV2(StrategistBase):
             self._steps = self._steps[: self._cursor] + remaining
             self._append_trace("login_skip", removed=skipped)
 
+    def _inject_login_flow(self, planned_step: StepMeta) -> None:
+        if self._login_flow_triggered:
+            return
+        actions = [
+            {"action": "fill", "selector": "#username", "text": "tomsmith"},
+            {"action": "fill", "selector": "#password", "text": "SuperSecretPassword!"},
+            {"action": "click", "selector": "button[type='submit']"},
+            {"action": "wait_for_navigation", "timeout": 8000},
+            {"action": "screenshot", "name": "secure_area.png"},
+        ]
+        self.insert_steps(actions, bucket=planned_step.get("bucket"), tag="login_flow")
+        self._login_flow_triggered = True
+        self._append_trace("login_flow", inserted=len(actions))
+
     def _insert_cookie_dismiss(self, popup: Dict[str, Any], planned_step: StepMeta) -> None:
         selector = popup.get("selector") or "button"
         action = {
@@ -688,6 +788,15 @@ class StrategistV2(StrategistBase):
             "text": popup.get("text"),
         }
         self.insert_steps([action], bucket=planned_step.get("bucket"), tag="cookie_popup")
+
+    def _apply_cookie_popup_patch(self, planned_step: StepMeta, repair: MicroRepair) -> None:
+        new_selector = repair.get("new_selector")
+        if not new_selector:
+            return
+        payload = planned_step.setdefault("action_payload", {})
+        payload["selector"] = new_selector
+        payload["metadata"] = {"reason": repair.get("reason"), "patched": True}
+        planned_step["selector"] = new_selector
 
     def _insert_interference_actions(self, findings: List[Dict[str, Any]], planned_step: StepMeta) -> None:
         actions: List[Dict[str, Any]] = []
@@ -711,7 +820,23 @@ class StrategistV2(StrategistBase):
         patched = dict(planned_step.get("action_payload", {}))
         patched["selector"] = repair.get("new_selector")
         patched["metadata"] = {"reason": repair.get("reason"), "patched": True}
-        self.insert_steps([patched], bucket=planned_step.get("bucket"), tag="micro_repair")
+        payload = dict(patched)
+        payload.setdefault("id", f"auto_{next(self._inserted_counter)}")
+        step_meta: StepMeta = {
+            "step_id": payload["id"],
+            "task_id": payload.get("task_id", "micro_repair_task"),
+            "bucket": planned_step.get("bucket"),
+            "action": payload.get("action"),
+            "selector": payload.get("selector"),
+            "url": payload.get("url"),
+            "action_payload": payload,
+            "source": "micro_repair",
+        }
+        insert_index = self._cursor
+        while insert_index < len(self._steps) and self._steps[insert_index].get("source") == "cookie_popup":
+            insert_index += 1
+        self._steps[insert_index:insert_index] = [step_meta]
+        self._append_trace("insert", count=1, tag="micro_repair")
 
     def _mark_active_subgoal(self, run_ctx: RunContext, status: str) -> None:
         target = run_ctx.get("active_plan_target")
@@ -833,6 +958,77 @@ class StrategistV2(StrategistBase):
         if not dom_path and not screenshot_path:
             return None
         return {"dom_path": dom_path, "screenshot_path": screenshot_path}
+
+    def learn_from_past(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        states = batch.get("states") or []
+        summary = {
+            "states": 0,
+            "memory_updates": 0,
+            "improved_subgoals": 0,
+            "bias_updates": 0,
+            "skill_events": 0,
+            "learned": [],
+        }
+        for state in states:
+            fingerprint = state.get("fingerprint")
+            if not fingerprint:
+                continue
+            reward_trace = state.get("reward_trace") or []
+            planner_events = state.get("planner_events") or []
+            repair_events = state.get("repair_events") or []
+            self.behavior_learner.update(fingerprint, reward_trace, planner_events, repair_events)
+            prediction = self.behavior_learner.predict(fingerprint, [entry.get("reward", 0.0) for entry in reward_trace[-3:]], repair_events)
+            selectors = self._selectors_from_repairs(repair_events)
+            subgoals = self._merge_offline_subgoals(state, prediction)
+            behavior_summary = state.get("behavior_summary") or {"last_prediction": prediction}
+            stability_summary = state.get("stability") if isinstance(state.get("stability"), dict) else None
+            self.agent_memory.record(fingerprint, selectors, subgoals, reward_trace, behavior_summary, stability_summary)
+            summary["states"] += 1
+            summary["memory_updates"] += 1
+            summary["improved_subgoals"] += len(subgoals)
+            if prediction.get("selector_bias"):
+                self._selector_bias = prediction["selector_bias"]
+                summary["bias_updates"] += 1
+            self._anticipate_repair = bool(prediction.get("likely_repair"))
+            summary["skill_events"] += self._record_skill_feedback(state, bool(subgoals))
+            summary["learned"].append({"fingerprint": fingerprint, "subgoals": subgoals})
+        summary["skill_stats"] = SkillRegistry.stats()
+        summary["batch_tag"] = batch.get("tag")
+        return summary
+
+    def _selectors_from_repairs(self, repairs: Sequence[Dict[str, Any]]) -> List[str]:
+        selectors: List[str] = []
+        for event in repairs or []:
+            patch = event.get("patch") or {}
+            selector = patch.get("new_selector") or patch.get("selector")
+            if selector:
+                selectors.append(selector)
+        return selectors
+
+    def _merge_offline_subgoals(self, state: Dict[str, Any], prediction: Dict[str, Any]) -> List[str]:
+        candidates: List[str] = []
+        for key in ("alternate_subgoals", "suggested_subgoals"):
+            for entry in state.get(key) or []:
+                if isinstance(entry, str):
+                    candidates.append(entry)
+        for entry in prediction.get("recommended_subgoals", []):
+            if isinstance(entry, str):
+                candidates.append(entry)
+        return list(dict.fromkeys(candidates))
+
+    def _record_skill_feedback(self, state: Dict[str, Any], success: bool) -> int:
+        events = state.get("skill_events") or []
+        count = 0
+        for event in events:
+            SkillRegistry.record_feedback(event.get("name", "skill"), success=success, metadata={
+                "step_id": state.get("step_id"),
+                "failure": state.get("failure_reason"),
+            })
+            count += 1
+        if not events and state.get("failure_reason"):
+            SkillRegistry.record_feedback("replay_analyzer", success=success, metadata={"failure": state.get("failure_reason")})
+            count += 1
+        return count
 
 
 __all__ = ["StrategistV2", "StrategistBase"]

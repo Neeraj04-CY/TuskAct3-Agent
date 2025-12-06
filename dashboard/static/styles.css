@@ -1,0 +1,111 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+header {
+  padding: 24px;
+  background: #111c36;
+  border-bottom: 1px solid #1f2a44;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: #94a3b8;
+}
+
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  padding: 24px;
+}
+
+.panel {
+  background: #1e293b;
+  border: 1px solid #283753;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.4);
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+#repairs,
+#behavior-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#repairs li,
+#behavior-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid #2f3f63;
+}
+
+#planner-log {
+  background: #0b1120;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  max-height: 240px;
+}
+
+#failure-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#failure-table th,
+#failure-table td {
+  padding: 6px;
+  border-bottom: 1px solid #2f3f63;
+}
+
+#dom-viewer {
+  display: grid;
+  gap: 12px;
+}
+
+.dom-card {
+  background: #0f172a;
+  border: 1px solid #23314f;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.dom-card pre {
+  max-height: 200px;
+  overflow: auto;
+  background: #020617;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.dom-card img {
+  width: 100%;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 1px solid #1d283b;
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -73,7 +75,7 @@ class BehaviorLearner:
             for event in planner_events:
                 if event.get("type") != "subgoal":
                     continue
-                name = event.get("name") or "unknown"
+                name = self._normalize_subgoal_name(event.get("name"))
                 stats.subgoal_counts[name] = stats.subgoal_counts.get(name, 0) + 1
                 if event.get("status") == "completed":
                     stats.subgoal_success[name] = stats.subgoal_success.get(name, 0) + 1
@@ -145,6 +147,18 @@ class BehaviorLearner:
 
     def _clamp(self, value: float, *, low: float = 0.0, high: float = 1.0) -> float:
         return max(low, min(high, value))
+
+    def _normalize_subgoal_name(self, value: Any) -> str:
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict):
+            nested = value.get("name")
+            if isinstance(nested, str) and nested:
+                return nested
+            return json.dumps(value, sort_keys=True, default=str)
+        if value is None:
+            return "unknown"
+        return str(value)
 
 
 __all__ = ["BehaviorLearner", "Prediction", "PlannerEvent"]

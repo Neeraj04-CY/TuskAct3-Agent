@@ -1,24 +1,31 @@
-# Bytecode and caches
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
+*.pyd
 
-# Virtual environments
-venv/
+# Environments
 .venv/
-.env
+venv/
 env/
+.env
 
-# Test & coverage artifacts
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Local run outputs
-runs/
-artifacts/
-tmp_run/
-
-# Tools
+# OS files
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+pytest_cache/
+.pytest_cache/
+.cache/
+
+# Playwright artifacts
+artifacts/
+playwright/.cache/
+tmp_run/
+runs/
+
+# IDE
+.vscode/
+.idea/

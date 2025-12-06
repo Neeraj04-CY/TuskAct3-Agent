@@ -54,4 +54,3 @@ def test_adaptive_navigation_fix(monkeypatch) -> None:
     assert actions[1]["action"] == "navigate"
     assert actions[1]["url"] == "https://backup.example"
     assert actions[2]["id"] == "s2"  # original click shifted
-*** End***

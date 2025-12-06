@@ -32,3 +32,4 @@ Each card links to the raw artifact sitting in `docs/artifacts/heroku_sample/`, 
 - JSON viewer loaded with `artifacts/heroku_sample/result.json` to prove transparency.
 - Artifacts viewer showing both the DOM and screenshot evidence.
 - Terminal shot of `pytest -q` passing plus the command used to generate the demo run.
+- Snippet from `artifacts/heroku_sample/stability_report.md` showing reward drift, confidence trends, and run-to-run success rate.

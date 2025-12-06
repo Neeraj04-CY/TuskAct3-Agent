@@ -47,7 +47,7 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     imageio.mimsave(output, images, duration=duration, loop=args.loop if args.loop >= 0 else 0)
-    print(f"📸 Generated GIF with {len(trimmed)} frames -> {output}")
+    print(f"[demo-gif] Generated GIF with {len(trimmed)} frames -> {output}")
 
 
 if __name__ == "__main__":

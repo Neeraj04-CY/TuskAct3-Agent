@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,6 +71,8 @@ class BrowserWorkerV1:
             "layout": "document",
         }
         self._local_step_index = 0
+        self._last_dom_html = "<html></html>"
+        self._trace_logger = logging.getLogger(__name__)
 
     async def run_plan(self, plan: Dict[str, Any], *, goal: str | None = None) -> RunSummary:
         """Execute every BrowserWorker task contained in the plan."""
@@ -148,7 +151,19 @@ class BrowserWorkerV1:
             elif action_name in {"wait_for", "wait_for_selector"}:
                 await self._handle_wait(action)
             elif action_name == "dom_presence_check":
-                await self._handle_dom_check(action)
+                dom_result = await self._handle_dom_check(action, step_number=step_number)
+                trace["details"] = dom_result
+                if dom_result.get("dom_path"):
+                    trace["dom_path"] = dom_result["dom_path"]
+                if dom_result.get("screenshot"):
+                    trace["screenshot_path"] = dom_result["screenshot"]
+                if dom_result.get("status") != "ok":
+                    error_message = dom_result.get("error") or "dom_presence_failed"
+                    detail_msg = dom_result.get("details")
+                    if detail_msg:
+                        error_message = f"{error_message}: {detail_msg}"
+                    trace["status"] = "error"
+                    trace["error"] = error_message
             elif action_name == "screenshot":
                 trace["screenshot_path"] = await self._handle_screenshot(action, step_number=step_number)
             elif action_name in {"extract_dom", "extract"}:
@@ -180,6 +195,11 @@ class BrowserWorkerV1:
         html: str
         if session:
             await session.page.goto(str(url_value), wait_until="load")
+            await session.page.wait_for_load_state("domcontentloaded", timeout=10000)
+            try:
+                await session.page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:  # noqa: BLE001
+                self._trace_logger.debug("networkidle timeout", extra={"url": str(url_value)})
             html = await session.page.content()
             current_url = session.page.url
         else:
@@ -189,6 +209,7 @@ class BrowserWorkerV1:
         layout = dom_utils.build_layout_graph(html)
         self._save_layout(layout, step_index=step_number)
         self._state.update({"url": current_url, "dom": html, "layout": layout})
+        self._last_dom_html = html
         return str(dom_path)
 
     async def _handle_fill(self, action: StepAction) -> None:
@@ -215,13 +236,57 @@ class BrowserWorkerV1:
                 seconds = 0.0
         await asyncio.sleep(min(seconds, self._max_wait))
 
-    async def _handle_dom_check(self, action: StepAction) -> None:
-        selector = action.get("selector")
+    async def _handle_dom_check(self, action: StepAction, *, step_number: int) -> Dict[str, Any]:
+        selector = (action.get("selector") or "").strip()
         if not selector:
-            raise ValueError("dom_presence_check requires selector")
-        dom_snapshot = self._state.get("dom") or ""
-        if selector not in dom_snapshot:
-            raise ValueError(f"selector {selector} not found in DOM")
+            return {"status": "failed", "error": "dom_presence_failed", "details": "missing_selector"}
+        selectors = self.expand_selectors(selector)
+        timeout_ms = int(action.get("timeout") or 8000)
+        session = await self._ensure_session()
+        page = session.page if session else None
+        if page:
+            try:
+                matched = await self.wait_for_dom(page, selectors, timeout_ms=timeout_ms)
+                return {
+                    "status": "ok",
+                    "matched_selector": matched,
+                    "selectors": selectors,
+                    "mode": "live",
+                }
+            except TimeoutError as exc:
+                screenshot_path = None
+                if self.screenshot_enabled:
+                    payload = await page.screenshot(full_page=True)
+                    screenshot_path = str(self._save_screenshot(payload, step_index=step_number, name="dom_failure.png"))
+                dom_path = str(self._save_dom(
+                    self._state.get("dom") or "<html></html>",
+                    step_index=step_number,
+                    name="dom_failure.html",
+                ))
+                return {
+                    "status": "failed",
+                    "error": "dom_presence_failed",
+                    "details": str(exc),
+                    "selectors": selectors,
+                    "dom_path": dom_path,
+                    "screenshot": screenshot_path,
+                    "wait_timeout_ms": timeout_ms,
+                }
+        dom_snapshot = self._state.get("dom") or self._last_dom_html
+        matched = self._match_selector_in_html(selectors, dom_snapshot)
+        if matched:
+            return {
+                "status": "ok",
+                "matched_selector": matched,
+                "selectors": selectors,
+                "mode": "snapshot",
+            }
+        return {
+            "status": "failed",
+            "error": "dom_presence_failed",
+            "details": "selector_missing_in_snapshot",
+            "selectors": selectors,
+        }
 
     async def _handle_screenshot(self, action: StepAction, *, step_number: int) -> str | None:
         if not self.screenshot_enabled:
@@ -302,6 +367,115 @@ class BrowserWorkerV1:
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
+
+    async def wait_for_dom(self, page: Any, selectors: List[str], *, timeout_ms: int = 8000) -> str:
+        failures: List[str] = []
+        for selector in selectors:
+            started = perf_counter()
+            try:
+                await page.wait_for_selector(selector, timeout=timeout_ms, state="attached")
+                elapsed = round((perf_counter() - started) * 1000, 2)
+                self._trace_logger.debug("DOM selector success", extra={"selector": selector, "elapsed_ms": elapsed})
+                return selector
+            except Exception as exc:  # noqa: BLE001
+                elapsed = round((perf_counter() - started) * 1000, 2)
+                self._trace_logger.debug(
+                    "DOM selector failure",
+                    extra={"selector": selector, "elapsed_ms": elapsed, "error": str(exc)},
+                )
+                failures.append(str(exc))
+        raise TimeoutError(f"DOM presence failed. Tried: {selectors}")
+
+    def expand_selectors(self, selector: str) -> List[str]:
+        raw = selector.strip()
+        if not raw:
+            return []
+        token = raw.lstrip("#.")
+        token_root = self._selector_token_root(token)
+        title_token = token.capitalize()
+        candidates: List[str] = [raw]
+        if raw.startswith("#"):
+            candidates.extend([
+                f"#{token}",
+                f"input#{token}",
+                f'[id="{token}"]',
+                f'[name="{token}"]',
+                f'input[name="{token}"]',
+                f"//input[contains(@id,\"{token_root}\")]",
+                f"//*[contains(text(),\"{title_token}\")]",
+            ])
+        elif raw.startswith("."):
+            candidates.extend([
+                f"button{raw}",
+                f"a{raw}",
+                f"div{raw}",
+                f'//*[@class and contains(@class,\"{token_root}\")]',
+            ])
+        else:
+            candidates.extend([
+                f"#{token}",
+                f".{token}",
+                f'input[name="{token}"]',
+                f"//input[contains(@name,\"{token_root}\")]",
+                f"//*[contains(text(),\"{title_token}\")]",
+            ])
+        seen: set[str] = set()
+        ordered: List[str] = []
+        for candidate in candidates:
+            normalized = candidate.strip()
+            if normalized and normalized not in seen:
+                ordered.append(normalized)
+                seen.add(normalized)
+        return ordered
+
+    def _match_selector_in_html(self, selectors: List[str], html: str) -> str | None:
+        lowered = html.lower()
+        for selector in selectors:
+            token = self._selector_token(selector)
+            if token and token in lowered:
+                return selector
+        return None
+
+    def _selector_token(self, selector: str) -> str | None:
+        raw = selector.strip()
+        if not raw:
+            return None
+        if raw.startswith("#"):
+            return f'id="{raw[1:].lower()}"'
+        if raw.startswith("."):
+            return raw[1:].lower()
+        if "contains(@id" in raw:
+            fragment = self._extract_between(raw, 'contains(@id,', ")")
+            return (fragment or "").strip('\"').lower()
+        if "contains(text()" in raw:
+            fragment = self._extract_between(raw, 'contains(text(),', ")")
+            return (fragment or "").strip('\"').lower()
+        if "[name=" in raw:
+            fragment = self._extract_between(raw, '[name="', '"]')
+            return (fragment or "").lower()
+        if "[id=" in raw:
+            fragment = self._extract_between(raw, '[id="', '"]')
+            return (fragment or "").lower()
+        return raw.lower()
+
+    @staticmethod
+    def _extract_between(value: str, start: str, end: str) -> str | None:
+        if start not in value or end not in value:
+            return None
+        _, _, remainder = value.partition(start)
+        if not remainder:
+            return None
+        fragment, _, _ = remainder.partition(end)
+        return fragment
+
+    @staticmethod
+    def _selector_token_root(token: str) -> str:
+        lowered = token.lower()
+        for splitter in ("-", "_", "."):
+            if splitter in lowered:
+                lowered = lowered.split(splitter)[0]
+                break
+        return lowered
 
     def _try_load_local_resource(self, url: str) -> str | None:
         parsed = urlparse(url)

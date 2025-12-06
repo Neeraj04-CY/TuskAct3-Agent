@@ -30,15 +30,15 @@ def make_plan() -> dict:
 
 
 def test_adaptive_cookie_popup(monkeypatch) -> None:
-    controller = AdaptiveController(budget=3)
+    controller = AdaptiveController(max_corrections=3)
     plan = make_plan()
     failure_report = {"step_id": "s2", "error": "cookie banner"}
 
     responses = [
         {
-            "type": "insert",
+            "type": "insert_steps",
             "payload": {
-                "after_step": "s1",
+                "before_step": "s2",
                 "actions": [
                     {
                         "id": "cookie_close",

@@ -38,7 +38,7 @@ class OrchestratorV2:
                 continue
             strategy_step = self.strategist.next_step()
             action_payload = strategy_step.metadata.get("action_payload") or {}
-            worker_result = await self.worker.execute({"action": action_payload})
+            worker_result = await self.worker.execute({"action": action_payload, "goal": goal})
             self.transcript.append({"step": strategy_step.metadata, "result": worker_result})
             self.strategist.on_step_result(run_ctx, strategy_step.metadata, worker_result)
             self.strategist.record_result(worker_result)
@@ -46,6 +46,10 @@ class OrchestratorV2:
             run_ctx["recent_transition"] = (action_payload.get("action") == "navigate")
             if self.strategist.should_abort():
                 abort_reason = "strategist abort"
+                break
+            dom_failure = worker_result.get("error") == "dom_presence_failed"
+            if dom_failure:
+                abort_reason = "dom_presence_failed"
                 break
             if self.strategist.should_replan(run_ctx, strategy_step.metadata, worker_result):
                 abort_reason = "replan requested"
@@ -65,6 +69,14 @@ class OrchestratorV2:
         }
         if self.logger:
             payload["artifacts"] = self.logger.to_dict()
+        stability_summary = self.strategist.finalize_run(
+            run_ctx,
+            completion,
+            payload["duration_seconds"],
+            payload.get("artifacts"),
+        )
+        if stability_summary:
+            payload["stability"] = stability_summary
         return payload
 
 

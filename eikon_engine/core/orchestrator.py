@@ -71,8 +71,10 @@ class Orchestrator:
                 action_repr = str(action_meta)
                 action_url = action_meta.get("url") if isinstance(action_meta, dict) else None
                 step_idx = goal_logger.log_step(step.metadata, goal=goal) if goal_logger else None
+                worker_metadata = dict(step.metadata)
+                worker_metadata.setdefault("goal", goal)
                 try:
-                    result = await self.worker.execute(step.metadata)
+                    result = await self.worker.execute(worker_metadata)
                 except Exception as exc:  # noqa: BLE001
                     retries += 1
                     if retries > self.retry_limit:

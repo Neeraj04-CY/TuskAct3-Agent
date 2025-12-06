@@ -1,240 +1,203 @@
+<div align="center">
+
 # EIKON ENGINE
 
-> “An Autonomous Self-Growing AI System with Tool Discovery, Skill Learning, and Recursive Improvement.”
+[![CI](https://github.com/Neeraj04-CY/TustAct3-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Neeraj04-CY/TustAct3-Agent/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-live-blue)](docs/index.html)
+[![Demo Assets](https://img.shields.io/badge/demo-heroku_sample-success)](docs/artifacts.md)
 
-EIKON ENGINE is a modular AI framework where the system behaves like a junior engineer that:
+> Self-growing agent stack that plans, executes, learns new skills, and ships deterministic evidence for every run.
 
-- Plans tasks
-- Executes tasks
-- Learns new tools
-- Upgrades its intelligence
-- Stores memory
-- Fixes its own mistakes
-- Expands itself over time
+</div>
 
-The long-term goal is a self-growing AI platform capable of becoming a full agent ecosystem.
+## Why it matters
 
----
+- **Deterministic autonomy** – Strategist + Browser Worker pairings run with Playwright dry-runs by default so YC reviewers can replay with zero external access.
+- **Artifact-first storytelling** – Every demo emits screenshots, DOM captures, JSON traces, and a markdown summary that publish directly to GitHub Pages.
+- **Tool discovery + memory fusion** – Worker feedback loops update the memory store so the agent ranks skills, retries failures, and keeps improving.
 
-## Vision
-
-EIKON has 7 core pillars:
-
-1. **Strategist (Planner)** — Turns natural language into a multi-step structured plan.
-2. **Worker (Executor)** — Executes plans: browser automation, APIs, code, shell, artifacts.
-3. **Tool Discovery Engine** — Autonomously discovers, validates, and packages tools into skills.
-4. **Skill Library** — Stores reusable tools (skills) as versioned modules.
-5. **Memory Engine** — Long-term memory: successes, failures, tool performance, preferences.
-6. **Workflow Engine** — Orchestrates Strategist, Worker, Memory, and Skills for each task.
-7. **Error Recovery + Self-Debugger** — Detects failures, retries, rewrites, and improves.
+Read the architecture notes in `docs/overview.md` and the YC-ready positioning in `docs/yc_pitch.md`.
 
 ---
 
-## Roadmap
+## Demo at a glance
 
-EIKON v1 — **Basic Running Agent**
+| Asset | Location | Why it matters |
+| --- | --- | --- |
+| 📺 **Landing page** | `docs/index.html` | Polished cards showcasing each browser step with CTA buttons for JSON + artifacts. |
+| 🧠 **Strategist plan** | `docs/json_viewer.html` (loads `docs/artifacts/heroku_sample/result.json`) | Inspect every chain-of-thought action without running code. |
+| 📁 **Artifacts bundle** | `docs/artifacts/heroku_sample/` | Screenshots, DOM, logs, and the generated `run_summary.md` for recruiters. |
+| 🎥 **Video script** | `docs/quick_video.md` | 90-second narration ready for Loom / YC video. |
+| ✅ **Reviewer checklist** | `docs/reviewer_guide.md` | Five-minute inspection instructions for PMs or partners. |
 
-- CLI
-- Strategist v1
-- Worker v1
-- Basic logging
-- No memory (or minimal)
-
-EIKON v2 — **Add Memory + Skills**
-
-- Memory engine
-- Skill loading
-- Basic Tool Discovery
-
-EIKON v3 — **Browser Automation**
-
-- Playwright actions
-- DOM parsing
-- Screenshot logging
-
-EIKON v4 — **Intelligent Tool Discovery**
-
-- API scanning
-- Learning new tools
-- Versioning skills
-
-EIKON v5 — **Multi-Agent Behavior**
-
-- Strategist
-- Worker
-- Debugger
-
-EIKON v6 — **Self-Debugging**
-
-- Rewrite failing code
-- Run static analysis
-- Fix broken workflows
-
-EIKON v7 — **Recursive Improvement**
-
-- Worker creates new functions
-- Strategist stores improvements
-- Engine becomes self-growing
-
-EIKON v8 — **Extension System**
-
-- User-defined plugins
-- New agent types
-- Skill marketplace
-
-EIKON v9 — **Automated DevOps**
-
-- Code generation
-- Testing
-- Deployment automation
-
-EIKON v10 — **Full AI Operating System**
-
-- Multi-agent OS
-- Background tasks
-- Real-time monitoring
-- Autonomous learning
+Need more context? `docs/artifacts.md` explains each file, and `docs/demo_quickstart.md` shows how to refresh them.
 
 ---
 
-## Engineering Standards
+## One-command quickstart
 
-When generating code, always follow this standard:
+### Windows PowerShell
 
-- modular  
-- type-annotated  
-- documented  
-- small classes  
-- small functions  
-- decoupled components  
-- no monolithic files  
-- use dependency injection  
-- add tests  
-- create interfaces  
-- predictable naming  
-- follow SOLID principles  
-
-These principles are enforced across:
-
-- Strategist
-- Worker
-- Discovery
-- Skills
-- Memory
-- Workflow
-- Debugger
-
----
-
-## Repository Structure
-
-```text
-eikon-engine/
-│
-├── src/
-│   ├── strategist/
-│   ├── worker/
-│   ├── discovery/
-│   ├── skills/
-│   ├── memory/
-│   ├── workflow/
-│   └── cli/
-│
-├── configs/
-├── tests/
-└── README.md
+```powershell
+Set-ExecutionPolicy -Scope Process RemoteSigned
+./run_quick_demo.ps1
 ```
 
-See inline module docstrings for details.
-
----
-
-## Quick Start (Planned)
+### macOS / Linux
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the demo goal
-python scripts/run_demo_goal.py "Scrape the latest AI news and summarize it."
+chmod +x run_quick_demo.sh
+./run_quick_demo.sh
 ```
 
-This script will:
+What this does:
 
-1. Load Planner v3 and Strategist defaults from `config/settings.yaml`.
-2. Generate a BrowserWorker plan for your natural language task.
-3. Execute it end-to-end with `BrowserWorkerV1` (Playwright when enabled).
-4. Persist DOM snapshots, screenshots, and a `run_summary.json` inside `runs/<timestamp>/`.
+1. Creates/activates `.venv`, installs dependencies, and provisions Playwright browsers.
+2. Runs `run_autonomy_demo.py` in deterministic dry-run mode (no external network).
+3. Copies the latest `artifacts/autonomy_demo_*` folder into `docs/artifacts/heroku_sample/`.
+4. Rebuilds the GIF (`docs/assets/demo.gif`) and `docs/artifacts/heroku_sample/run_summary.md` via `scripts/make_demo_gif.py` and `scripts/generate_run_summary.py`.
+
+When it finishes you can open `docs/index.html` locally or push to GitHub Pages for the exact same experience viewers will see.
 
 ---
 
-## BrowserWorker Demo
-
-Use the BrowserWorker demo script to validate dry-run safeguards and live Playwright automation:
+## Manual setup (if you prefer to step through)
 
 ```bash
-# 1) Install project deps (one time)
+python -m venv .venv && source .venv/bin/activate  # .venv\Scripts\activate on Windows
 pip install -r requirements.txt
-
-# 2) Install Playwright browsers (one time)
 python -m playwright install
-
-# 3) Allow browser access if you want to hit external URLs
-set EIKON_ALLOW_EXTERNAL=1
-set EIKON_ALLOW_SENSITIVE=1
-
-# 4) Optional: bypass dry-run safeguards for real browser control
-set PLAYWRIGHT_BYPASS_DRY_RUN=1
-
-# 5) Run the demo (prints standalone worker + Strategist/TaskOrchestrator runs)
-python scripts/run_browser_demo.py
+python run_demo_goal.py --goal "Log into the Heroku test site and capture the Secure Area banner" --summary runs/latest_summary.json
 ```
 
-- Without `PLAYWRIGHT_BYPASS_DRY_RUN=1`, the script shows only the dry-run payload.
-- With the env var set, the worker launches Playwright headlessly, captures screenshots, and extracts the DOM from `examples/demo_local_testsite/login.html`.
-- The Strategist demo issues natural-language instructions that the BrowserWorker converts into navigate/fill/click operations.
-
-The script prints the direct worker output first and then the TaskOrchestrator transcript so you can inspect both flows side by side.
+Copy the resulting `runs/<timestamp>` folder into `docs/artifacts/<slug>` and update `docs/assets/demo.gif` / `docs/json_viewer.html` paths as needed. The helper script `scripts/generate_demo_assets.py` shows the exact copying rules.
 
 ---
 
-## Live Demo
+## Architecture snapshot
 
-GitHub Pages can publish the static `docs/` site directly from this repo. Once enabled, share:
+- **Strategist (`src/strategist/`)** – turns natural language goals into structured plans with guardrails.
+- **Worker (`src/worker/`)** – executes browser/API/code steps, logs DOM + screenshots, and emits telemetry.
+- **Memory (`src/memory/`)** – persists successes/failures so Strategist can re-rank tools.
+- **Discovery + Skills (`src/discovery`, `src/skills`)** – package reusable capabilities that can be swapped in or discovered automatically.
+- **Workflow (`src/workflow/`)** – orchestrates Strategist ⇄ Worker ⇄ Memory and handles retries.
 
-```
-https://<github-username>.github.io/<repo-name>/
-```
+Peek at `docs/overview.md` for the full research brief plus the roadmap for adaptive tool discovery.
 
-GitHub automatically serves the `docs/index.html` landing page plus all artifacts under `docs/artifacts/`.
+---
 
-## How to Reproduce the Demo Locally
+## Documentation map
 
-Use a single shell session and run the exact commands below:
+- `docs/demo_quickstart.md` – step-by-step reproduction guide (Windows + macOS/Linux).
+- `docs/artifacts.md` – how to inspect `steps.jsonl`, `trace.jsonl`, screenshots, and summaries.
+- `docs/quick_video.md` – narration outline for a ≤2 minute video.
+- `docs/reviewer_guide.md` – five-minute checklist for YC/recruiters.
+- `docs/yc_pitch.md` – written pitch covering problem/solution/traction/ask.
+
+Everything links back to this README so reviewers never get lost.
+
+---
+
+## Stability Loop
+
+- `StabilityMonitor` records reward drift, confidence deltas, repair counts, duration trends, DOM fingerprint similarity, and repeated failures after every autonomy run.
+- Each invocation of `run_autonomy_demo.py` now emits `stability_report.json` and `stability_report.md` next to the summary files, plus appends to `artifacts/stability/history.json` for multi-run trend analysis.
+- Strategist V2 feeds these metrics into `AgentMemory`, so future plans inherit selector bias, repair pressure, and success-rate context directly from the stability loop.
+
+---
+
+## Autonomous Rollout Engine: Self-Improvement Across Runs
+
+- `run_rollout.py --n 20` executes N autonomy episodes (dry-run by default), reusing the same Strategist/AgentMemory/StabilityMonitor instances so learning compounds between attempts.
+- Each episode stores `reward_trace`, confidence medians, repair events, planner evolution, behavior predictions, DOM fingerprints, and the generated `stability_report.*` under `artifacts/rollouts/run_{i}/`.
+- After all runs, `rollout_summary.json` + `.md` capture reward trendlines (linear regression), confidence medians, repair-pressure trends, repeated failure clusters, behavior-model deltas, memory growth, stability drift, and pass/fail classifications per run.
+- Use rollout summaries in reviewer packets to prove the agent improves autonomously without manual resets.
+
+---
+
+## Self-Improvement Loop
+
+- `eikon_engine/replay/experience_replay.py` replays historical autonomy runs, captures low-confidence failures, and feeds them into `StrategistV2.learn_from_past` without touching the browser. Alternate subgoals are rescored with the reward model and merged back into AgentMemory.
+- `eikon_engine/replay/curriculum_builder.py` clusters runs by difficulty spikes, repeated failure clusters, stability drift, and DOM similarity so the most fragile scenarios get replayed first.
+- Run the full offline curriculum plus reporting pipeline with:
 
 ```bash
-# Windows PowerShell
-python -m venv .venv && .venv\Scripts\activate
-
-# macOS/Linux
-python -m venv .venv && source .venv/bin/activate
-
-pip install -r requirements.txt
-playwright install
-python scripts/run_demo_goal.py "Log in to https://the-internet.herokuapp.com/login with tomsmith / SuperSecretPassword! and capture the Secure Area screenshot."
+python run_offline_eval.py --artifacts artifacts --output artifacts/replay --save-hints
 ```
 
-Artifacts will be written to `runs/<timestamp>/`. Copy the desired run into `docs/artifacts/heroku_sample/` (or any new slug) before pushing so GitHub Pages publishes the same evidence anyone can reproduce locally.
+- Need a smaller pass? Limit history and skip persistence:
 
-## What to Show to a Recruiter / YC Interview
+```bash
+python run_offline_eval.py --limit 3
+```
 
-- Screenshot from `docs/artifacts/heroku_sample/heroku_login.png` displayed on the live site.
-- Plan or run trace JSON (`docs/artifacts/heroku_sample/result.json`).
-- `runs/<timestamp>/run_summary.json` or CLI log snippet proving end-to-end autonomy.
-- `pytest -q` output demonstrating the safety net before the demo.
+- Every replay cycle emits `replay_summary.json`, per-batch reports, and `improvement_report.json/md` that summarize selector bias shifts, subgoal merges, and skill metrics. When `--save-hints` is set the newly learned selectors/subgoals land in `memory_hints.json` for the next live Strategist run.
+
+---
+
+## Showcase Dashboard & Release Bundle
+
+- `python run_demo.py` runs a single autonomy episode, prints a human-readable verdict, spins up the FastAPI dashboard (`dashboard/server.py`), and opens it in your browser. Pass `--no-dashboard` if you only need artifacts.
+- Dashboard views: last-run summary, reward/confidence charts, repair timeline, planner evolution log, stability drift history, repeated failure clusters, memory growth, behavior predictions, plus a DOM + screenshot viewer for every step. All data comes from `artifacts/autonomy/run_*` so you can refresh without restarts.
+- `python build_release.py --rollout 3` reruns the fast autonomy demo, optionally triggers a short rollout, copies everything into `release_bundle/release_<timestamp>/`, generates `demo.gif`, `charts.html`, dashboard snapshots, and exports `README.md` + `docs/yc_pitch.md` to both Markdown and PDF.
+- Ship the `release_bundle/` folder to YC reviewers so they can inspect artifacts, metrics, and videos without reproducing the run locally.
+
+---
+
+## API Usage
+
+- Launch the service with `uvicorn api_server:app --reload`. Endpoints include `/run` (full autonomy demo), `/plan`, `/predict`, `/last_run`, and `/artifacts/{path}`.
+- **curl example**:
+
+```bash
+curl -X POST http://localhost:8000/run \
+	-H "Content-Type: application/json" \
+	-d '{"goal":"Generate dashboard summary","execute":false}'
+```
+
+- **Python example**:
+
+```python
+import requests
+
+resp = requests.post("http://localhost:8000/run", json={"goal": "Demo"})
+resp.raise_for_status()
+summary = resp.json()["summary"]
+print("Status:", summary["reason"])
+```
+
+- `/plan` returns the raw planner targets, `/predict` calls the BehaviorLearner for a DOM fingerprint, and `/artifacts/...` streams run artifacts for UI embeddings.
+
+---
+
+## Skill Plugin Overview
+
+- Skills live under `eikon_engine/skills/` and inherit from `SkillBase`, implementing `suggest_subgoals`, `suggest_repairs`, and `metadata`.
+- Built-in examples: `FormFillSkill`, `LoginSkill`, and `ExtractSkill`. Drop in new modules and `SkillRegistry` autoloads them at runtime.
+- Strategist V2 merges skill suggestions with memory + behavior insights, logging the output into `run_ctx["skills"]`. Dashboard + API consumers can display which skills fired and what repairs were suggested.
+
+---
+
+## Testing & CI
+
+```bash
+pytest
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs lint + tests on every push and blocks merges if the deterministic demo summary goes stale.
+
+---
+
+## Contributing
+
+1. `scripts/setup_dev.sh` (or the PowerShell commands in `docs/demo_quickstart.md`) bootstraps dependencies.
+2. Open an issue describing the improvement.
+3. Submit a PR with screenshots of new artifacts + updated summaries.
+
+See `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `AUTHORS.md` for the canonical guidelines.
 
 ---
 
 ## License
 
-TBD.
+Apache-2.0 – see `LICENSE`.

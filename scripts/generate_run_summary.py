@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - runtime fallback
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create run_summary.md/pdf artifacts from a run folder.")
-    parser.add_argument("--run", required=True, help="Path to the run directory (e.g. docs/heroku_sample)")
+    parser.add_argument("--run", required=True, help="Path to the run directory (e.g. docs/artifacts/heroku_sample)")
     parser.add_argument("--title", default="Autonomy Demo", help="Title used in the generated summary")
     parser.add_argument("--md", default=None, help="Optional explicit Markdown output path")
     parser.add_argument("--pdf", default=None, help="Optional explicit PDF output path")
@@ -179,7 +179,7 @@ def _write_pdf(text: str, path: Path) -> None:
             pdf.drawString(72, y, line)
             y -= 14
     pdf.save()
-    print(f"📝 Wrote PDF summary -> {path}")
+    print(f"[run-summary] Wrote PDF summary -> {path}")
 
 
 def main() -> None:
@@ -190,7 +190,7 @@ def main() -> None:
     markdown = build_markdown(run_dir, args.title)
     md_path = Path(args.md) if args.md else run_dir / "run_summary.md"
     md_path.write_text(markdown, encoding="utf-8")
-    print(f"🗒️  Wrote Markdown summary -> {md_path}")
+    print(f"[run-summary] Wrote Markdown summary -> {md_path}")
     pdf_path = Path(args.pdf) if args.pdf else run_dir / "run_summary.pdf"
     _write_pdf(markdown, pdf_path)
 

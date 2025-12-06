@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, MutableSequence
 
-from eikon_engine.api.llm_repair import RepairResponse, request_llm_fix
+from eikon_engine.api import llm_repair
+from eikon_engine.api.llm_repair import RepairResponse
 from eikon_engine.browser.schema_v1 import FailureReport, StepAction
 
 PlanDict = Dict[str, Any]
@@ -36,7 +37,7 @@ class AdaptiveController:
 
         if not self.should_call_llm(failure_report):
             return None
-        response = request_llm_fix(failure_report)
+        response = llm_repair.request_llm_fix(failure_report)
         if not response:
             return None
         if response["type"] == "patch_selector" and self.selector_repairs >= self.max_selector_repairs:
@@ -141,11 +142,10 @@ class AdaptiveController:
         return plan.setdefault("actions", [])
 
     def _with_step_id(self, plan: PlanDict, action: StepAction) -> StepAction:
-        if action.get("id"):
-            return action
-        action = dict(action)
-        action["id"] = self._generate_step_id(plan)
-        return action
+        action_copy = dict(action)
+        if not action_copy.get("id"):
+            action_copy["id"] = self._generate_step_id(plan)
+        return action_copy
 
     def _generate_step_id(self, plan: PlanDict) -> str:
         existing = set()
@@ -166,5 +166,3 @@ class AdaptiveController:
     def _signature(self, failure_report: FailureReport) -> str:
         dom_excerpt = failure_report.get("dom_excerpt", "")[:120]
         return f"{failure_report.get('step_id')}|{failure_report.get('error')}|{dom_excerpt}"
-
-```

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from eikon_engine.config_loader import load_settings
 from eikon_engine.core.orchestrator_v2 import OrchestratorV2
@@ -13,6 +13,9 @@ from eikon_engine.planning.planner_v3 import plan_from_goal
 from eikon_engine.strategist.strategist_v2 import StrategistV2
 from eikon_engine.utils.logging_utils import ArtifactLogger
 from eikon_engine.workers.browser_worker import BrowserWorker
+
+if TYPE_CHECKING:
+    from eikon_engine.stability import StabilityMonitor
 
 
 logger = logging.getLogger(__name__)
@@ -38,10 +41,15 @@ async def _run_once(
     dry_run: bool,
     settings: Dict[str, Any],
     artifact_prefix: str,
+    stability_monitor: "StabilityMonitor | None" = None,
+    strategist: StrategistV2 | None = None,
 ) -> Dict[str, Any]:
     planner_context = settings.get("planner", {})
-    planner = PlannerV3Adapter(context=planner_context)
-    strategist = StrategistV2(planner=planner)
+    local_strategist = strategist
+    if local_strategist is None:
+        planner = PlannerV3Adapter(context=planner_context)
+        local_strategist = StrategistV2(planner=planner)
+    local_strategist.attach_stability_monitor(stability_monitor)
 
     logging_cfg = settings.get("logging", {})
     artifact_root = Path(logging_cfg.get("artifact_root", "artifacts"))
@@ -51,9 +59,10 @@ async def _run_once(
         settings=settings,
         logger=run_logger,
         enable_playwright=False if dry_run else None,
+        show_browser=None if dry_run else True,
     )
     orchestrator = OrchestratorV2(
-        strategist=strategist,
+        strategist=local_strategist,
         worker=worker,
         logger=run_logger,
     )
@@ -80,6 +89,8 @@ def run_pipeline(
     dry_run: bool = True,
     settings: Optional[Dict[str, Any]] = None,
     artifact_prefix: str = "browser_v2",
+    stability_monitor: "StabilityMonitor | None" = None,
+    strategist: StrategistV2 | None = None,
 ) -> Dict[str, Any]:
     """Public entry point that executes the Strategist V2 pipeline."""
 
@@ -91,5 +102,7 @@ def run_pipeline(
             dry_run=dry_run,
             settings=resolved_settings,
             artifact_prefix=artifact_prefix,
+            stability_monitor=stability_monitor,
+            strategist=strategist,
         )
     )

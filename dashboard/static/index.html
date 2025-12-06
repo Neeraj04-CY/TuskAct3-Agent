@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Eikon Showcase Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <h1>Eikon Showcase Dashboard</h1>
+      <p class="subtitle">Latest autonomy episode metrics at a glance.</p>
+    </header>
+
+    <main>
+      <section id="summary" class="panel">
+        <h2>Last Autonomy Run</h2>
+        <div id="summary-content">Loading summary…</div>
+      </section>
+
+      <section class="panel">
+        <h2>Reward & Confidence</h2>
+        <canvas id="rewardChart" height="160"></canvas>
+      </section>
+
+      <section class="panel">
+        <h2>Repair Events Timeline</h2>
+        <ul id="repairs"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Planner Evolution</h2>
+        <pre id="planner-log"></pre>
+      </section>
+
+      <section class="panel grid">
+        <div>
+          <h2>Stability Drift</h2>
+          <canvas id="stabilityChart" height="160"></canvas>
+        </div>
+        <div>
+          <h2>Repeated Failure Clusters</h2>
+          <table id="failure-table">
+            <thead>
+              <tr><th>Reason</th><th>Count</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Memory Growth</h2>
+        <div id="memory-stats"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Behavior Predictions</h2>
+        <ul id="behavior-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Skill Suggestions</h2>
+        <div id="skill-events"></div>
+        <div id="skill-repairs"></div>
+      </section>
+
+      <section class="panel">
+        <h2>DOM & Screenshot Viewer</h2>
+        <div id="dom-viewer"></div>
+      </section>
+    </main>
+  </body>
+</html>

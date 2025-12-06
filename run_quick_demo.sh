@@ -31,14 +31,14 @@ if [ -z "$LATEST_RUN" ]; then
   echo "[quick-demo] Unable to locate run folder under artifacts/autonomy_demo_*"
   exit 1
 fi
-TARGET="$ROOT/docs/heroku_sample"
+TARGET="$ROOT/docs/artifacts/heroku_sample"
 rm -rf "$TARGET"
 python - <<PY
 from pathlib import Path
 import shutil
 root = Path(r"$ROOT")
 latest = Path(r"$LATEST_RUN")
-target = root / "docs" / "heroku_sample"
+target = root / "docs" / "artifacts" / "heroku_sample"
 target.parent.mkdir(parents=True, exist_ok=True)
 shutil.copytree(latest, target)
 PY
@@ -46,4 +46,4 @@ PY
 python "$ROOT/scripts/make_demo_gif.py" --run "$TARGET" --output "$ROOT/docs/assets/demo.gif" --fps 2
 python "$ROOT/scripts/generate_run_summary.py" --run "$TARGET" --title "Autonomy Demo (dry-run)"
 
-echo "[quick-demo] Refreshed docs/heroku_sample and docs/assets/demo.gif"
+echo "[quick-demo] Refreshed docs/artifacts/heroku_sample and docs/assets/demo.gif"

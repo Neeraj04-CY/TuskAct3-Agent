@@ -1,0 +1,27 @@
+{
+  "mission_id": "mission_20251204_090614_641682",
+  "status": "failed",
+  "start_ts": "2025-12-04T09:06:14.642873Z",
+  "end_ts": "2025-12-04T09:06:14.646672Z",
+  "subgoal_results": [
+    {
+      "subgoal_id": "mission_20251204_090614_641682_sg1",
+      "description": "01. navigation: navigate",
+      "status": "failed",
+      "attempts": 3,
+      "started_at": "2025-12-04T09:06:14.645048Z",
+      "ended_at": "2025-12-04T09:06:14.646639Z",
+      "completion": null,
+      "error": "fake_run_pipeline() takes 0 positional arguments but 1 was given",
+      "artifacts": {
+        "traceback": "Traceback (most recent call last):\n  File \"c:\\Users\\neera\\OneDrive\\Documents\\EIKON ENGINE\\eikon_engine\\missions\\mission_executor.py\", line 134, in _execute_subgoal\n    payload = await self._run_subgoal_pipeline(\n                    ~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        goal_text=subgoal.description,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        allow_sensitive=mission_spec.allow_sensitive,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nTypeError: fake_run_pipeline() takes 0 positional arguments but 1 was given\n"
+      }
+    }
+  ],
+  "summary": {
+    "reason": "subgoal_failed",
+    "failed_subgoal": "mission_20251204_090614_641682_sg1",
+    "error": "fake_run_pipeline() takes 0 positional arguments but 1 was given"
+  },
+  "artifacts_path": "tmp\\mission_20251204_090614_collect_a_screenshot"
+}

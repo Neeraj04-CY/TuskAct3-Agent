@@ -27,12 +27,13 @@ $latest = Get-ChildItem $artifactRoot -Directory -Filter "autonomy_demo_*" | Sor
 if (-not $latest) {
     throw "[quick-demo] Unable to locate artifacts/autonomy_demo_*"
 }
-$target = Join-Path $Root "docs/heroku_sample"
+$target = Join-Path $Root "docs/artifacts/heroku_sample"
 if (Test-Path $target) {
     Remove-Item $target -Recurse -Force
 }
+New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
 Copy-Item $latest.FullName $target -Recurse
 python "$Root\scripts\make_demo_gif.py" --run "$target" --output "$Root\docs\assets\demo.gif" --fps 2
 python "$Root\scripts\generate_run_summary.py" --run "$target" --title "Autonomy Demo (dry-run)"
 
-Write-Host "[quick-demo] Refreshed docs/heroku_sample and docs/assets/demo.gif"
+Write-Host "[quick-demo] Refreshed docs/artifacts/heroku_sample and docs/assets/demo.gif"

@@ -112,6 +112,7 @@ async def test_browser_worker_v1_records_failure_on_dom_check(tmp_path: Path) ->
     assert summary["run_output"].startswith("failed")
     error_trace = summary["traces"][-1]
     assert error_trace["status"] == "error"
-    assert ".missing" in (error_trace["error"] or "")
+    assert "dom_presence_failed" in (error_trace["error"] or "")
+    assert error_trace["details"]["selectors"][0] == ".missing"
     assert not any(trace["action"] == "screenshot" for trace in summary["traces"] if trace["status"] == "ok")
     assert logger.summary_file.exists()
