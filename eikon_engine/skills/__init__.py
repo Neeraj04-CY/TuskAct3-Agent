@@ -1,15 +1,5 @@
-"""Skill plugin framework for Strategist V2."""
+from .base import Skill
+from .login import LoginFormSkill
+from .registry import get_skill, SKILL_REGISTRY
 
-from .base import SkillBase
-from .form_fill import FormFillSkill
-from .login import LoginSkill
-from .extract import ExtractSkill
-from .skill_registry import SkillRegistry
-
-__all__ = [
-    "SkillBase",
-    "FormFillSkill",
-    "LoginSkill",
-    "ExtractSkill",
-    "SkillRegistry",
-]
+__all__ = ["Skill", "LoginFormSkill", "get_skill", "SKILL_REGISTRY"]

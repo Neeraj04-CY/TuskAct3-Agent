@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
 from eikon_engine.planning.planner_v3 import plan_from_goal
@@ -14,15 +15,16 @@ _SENSITIVE_KEYS = ("password", "secret", "token", "key")
 _DURABILITY_SCORES = {"low": 0, "medium": 1, "high": 2}
 _MISSION_URL_PATTERN = re.compile(r"https?://[^\s]+")
 _LOGIN_KEYWORDS = ("login", "log in", "sign in", "signin")
-_LOGIN_USERNAME = "tomsmith"
-_LOGIN_PASSWORD = "SuperSecretPassword!"
+_LOGIN_USERNAME = "student"
+_LOGIN_PASSWORD = "Password123"
+_DEMO_LOGIN_HTML = Path(__file__).resolve().parents[2] / "examples" / "demo_local_testsite" / "login.html"
 
 
 class MissionPlanningError(RuntimeError):
     """Raised when the mission planner cannot produce subgoals."""
 
 
-def plan_mission(mission_spec: MissionSpec) -> List[MissionSubgoal]:
+def plan_mission(mission_spec: MissionSpec, *, settings: Optional[Dict[str, Any]] = None) -> List[MissionSubgoal]:
     """Return ordered mission subgoals using Planner v3."""
 
     safe_context = _scrub_constraints(mission_spec.constraints or {}, mission_spec.allow_sensitive)
@@ -34,12 +36,15 @@ def plan_mission(mission_spec: MissionSpec) -> List[MissionSubgoal]:
     if not tasks:
         raise MissionPlanningError("planner_empty")
     mission_url = _extract_mission_url(mission_spec.instruction)
+    mission_url = _override_demo_navigation_url(mission_url, mission_spec, settings)
     if mission_url:
         print("[DEBUG] Mission URL:", mission_url)
         tasks = _remove_redundant_navigation_tasks(tasks, mission_url)
-    inject_login_chain = _should_inject_login_chain(mission_spec.instruction, mission_url)
-    if inject_login_chain:
+    inject_login_chain = False
+    if _should_inject_login_chain(mission_spec.instruction, mission_url) and _has_dom_presence_task(tasks):
+        inject_login_chain = True
         tasks = _strip_dom_presence_tasks(tasks)
+        tasks = []
     plan_meta = plan.get("meta", {})
     subgoals: List[MissionSubgoal] = []
     for idx, task in enumerate(tasks, start=1):
@@ -88,6 +93,8 @@ def plan_mission(mission_spec: MissionSpec) -> List[MissionSubgoal]:
             planner_metadata=login_metadata,
         )
         subgoals.insert(insertion_offset, login_subgoal)
+    if settings and settings.get("demo"):
+        subgoals = [sub for sub in subgoals if "dom_presence_check" not in sub.description.lower()]
     return subgoals
 
 
@@ -181,10 +188,38 @@ def _build_login_action_chain() -> List[Dict[str, Any]]:
     return [
         {"action": "fill", "selector": "#username", "text": _LOGIN_USERNAME},
         {"action": "fill", "selector": "#password", "text": _LOGIN_PASSWORD},
-        {"action": "click", "selector": "button[type='submit']"},
+        {"action": "click", "selector": "button#submit"},
         {"action": "wait_for_navigation", "timeout": 8000},
         {"action": "screenshot", "name": "secure_area.png"},
     ]
+
+
+def _has_dom_presence_task(tasks: List[Dict[str, Any]]) -> bool:
+    for task in tasks:
+        actions = task.get("inputs", {}).get("actions", []) or []
+        for action in actions:
+            if (action.get("action") or "").lower() == "dom_presence_check":
+                return True
+    return False
+
+
+def _override_demo_navigation_url(
+    mission_url: Optional[str],
+    mission_spec: MissionSpec,
+    settings: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    if not settings or not settings.get("demo"):
+        return mission_url
+    if _DEMO_LOGIN_HTML.exists():
+        demo_url = _DEMO_LOGIN_HTML.resolve().as_uri()
+        if mission_url and mission_url != demo_url:
+            print(
+                "[DEMO] Overriding mission URL for demo mode",
+                "->",
+                demo_url,
+            )
+        return demo_url
+    return mission_url
 
 
 __all__ = ["plan_mission", "MissionPlanningError"]

@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .base import SkillBase
+from .base import Skill
 
 
-class FormFillSkill(SkillBase):
+class FormFillSkill(Skill):
     name = "form_fill"
     description = "Completes missing form inputs when the DOM exposes required fields."
+
+    async def execute(self, context):
+        return {
+            "status": "noop",
+            "skill": self.name,
+            "context": list((context or {}).keys()),
+        }
 
     def suggest_subgoals(self, state: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
         state = state or {}

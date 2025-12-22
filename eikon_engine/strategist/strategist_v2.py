@@ -13,6 +13,7 @@ from eikon_engine.core.completion import build_completion
 from eikon_engine.core.strategist import StrategyStep
 from eikon_engine.core.types import CompletionPayload
 from eikon_engine.planning.memory_store import MemoryStore
+from eikon_engine.memory.memory_reader import load_all_memories
 from eikon_engine.planning.planner_v1 import PlannerV1, PlanState
 
 from .agent_memory import AgentMemory, AgentMemoryHint
@@ -277,6 +278,22 @@ class StrategistV2(StrategistBase):
         self._last_features = state.get("features")
         self._last_mode = state.get("mode", "unknown")
         return state
+
+    @staticmethod
+    def memory_skill_hints(goal: str, url: Optional[str] = None) -> List[str]:
+        memories = load_all_memories()
+        goal_lower = (goal or "").lower()
+        hints: List[str] = []
+        for memory in memories:
+            if memory.status != "complete":
+                continue
+            if url and memory.url and memory.url == url:
+                hints.append("login_form_skill")
+                break
+            if "login" in goal_lower and "login" in memory.mission_text.lower():
+                hints.append("login_form_skill")
+                break
+        return hints
 
     def on_step_result(self, run_ctx: RunContext, planned_step: StepMeta, step_outcome: Dict[str, Any]) -> None:
         dom = self._load_dom_snapshot(step_outcome)

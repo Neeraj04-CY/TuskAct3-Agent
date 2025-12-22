@@ -74,6 +74,37 @@ Copy the resulting `runs/<timestamp>` folder into `docs/artifacts/<slug>` and up
 
 ---
 
+## Quick Heroku Login Demo (Recording-Friendly)
+
+Need a lightweight walkthrough for screen recordings? Run the direct Playwright driver:
+
+```bash
+python scripts/heroku_login_demo.py
+```
+
+What happens:
+
+- Launches Chromium headfully with Windows-safe flags and opens the Heroku sample login page.
+- Autofills the demo credentials (`tomsmith` / `SuperSecretPassword!`) and waits for the "You logged into a secure area!" banner.
+- Captures `artifacts_demo/secure_area.png` so you have a crisp slide-ready screenshot.
+- Keeps the browser open until you press Enter in the terminal, making it perfect for recording live narration.
+
+Use this when you only need a fast visual proof. The full autonomy missions/agent pipeline remains available through the CLI (`python -m eikon_engine.missions.cli ...`) for end-to-end demos, rollouts, and artifact generation.
+
+---
+
+## v2: Memory & Skills
+
+- **Mission memory ledger** – every autonomy run now persists a `MissionMemory` JSON file under `memory_logs/`. Entries capture mission text, detected URL, status, artifacts path, and the skills that fired. Nothing is lost between runs.
+- **Memory reader hooks Strategist V2** – before planning a new subgoal, the Strategist inspects prior memories (matching URLs or login intents) and surfaces reusable skill hints so the agent never starts cold.
+- **Reusable skills** – `LoginFormSkill` lives in `eikon_engine/skills/login.py` and drives Playwright directly. `BrowserWorker.run_skill()` hands the live `page` object plus credentials so skills can manipulate the DOM without rebuilding pipelines.
+- **Skill-aware execution** – when a remembered login mission repeats, `MissionExecutor` invokes `login_form_skill` ahead of the subgoal loop and records the reuse inside both the artifacts and the mission memory entry.
+- **Proof it works** – rerun any mission twice. The first run writes a memory entry; the second detects the prior success, loads the login skill, and completes faster while logging the reused skill.
+
+This fulfills the v2 mandate: *“TuskAct3 remembers past missions and reuses learned skills instead of starting from scratch.”*
+
+---
+
 ## Architecture snapshot
 
 - **Strategist (`src/strategist/`)** – turns natural language goals into structured plans with guardrails.
@@ -172,9 +203,10 @@ print("Status:", summary["reason"])
 
 ## Skill Plugin Overview
 
-- Skills live under `eikon_engine/skills/` and inherit from `SkillBase`, implementing `suggest_subgoals`, `suggest_repairs`, and `metadata`.
-- Built-in examples: `FormFillSkill`, `LoginSkill`, and `ExtractSkill`. Drop in new modules and `SkillRegistry` autoloads them at runtime.
-- Strategist V2 merges skill suggestions with memory + behavior insights, logging the output into `run_ctx["skills"]`. Dashboard + API consumers can display which skills fired and what repairs were suggested.
+- Skills now inherit from the async `Skill` base (`eikon_engine/skills/base.py`) and expose a single `execute(context)` coroutine. Context always includes the Playwright `page` plus mission-provided parameters (like credentials).
+- `LoginFormSkill` is the first reusable capability; `FormFillSkill` and `ExtractSkill` remain available for compatibility and return structured status payloads.
+- The lightweight `eikon_engine/skills/registry.py` maps names to skill instances and powers both the legacy `SkillRegistry` shim and the new memory-aware planner hints.
+- `BrowserWorker.run_skill()` shares its live session so skills can drive the page headlessly or headfully without extra plumbing.
 
 ---
 

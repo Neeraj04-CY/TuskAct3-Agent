@@ -25,6 +25,7 @@ from eikon_engine.browser.selector_resolver import (
 )
 from eikon_engine.core.completion import build_completion
 from eikon_engine.core.types import BrowserAction, BrowserWorkerResult
+from eikon_engine.skills.registry import get_skill
 from eikon_engine.utils import dom_utils, vision_utils
 from eikon_engine.utils.logging_utils import ArtifactLogger
 from eikon_engine.utils.safety_guardrails import SafetyGuardrails
@@ -110,9 +111,16 @@ class BrowserWorker:
         self._shutdown_complete = False
         self._secure_area_info: Dict[str, Any] | None = None
         self._login_flow_state: Dict[str, bool] = {}
+        self.demo_mode = False
+        self._demo_active = False
+        self.default_wait_time: Optional[int] = None
+        self.skip_retries = False
 
     async def execute(self, metadata: Dict[str, Any]) -> BrowserWorkerResult:
         """Execute the provided browser action sequence."""
+
+        demo_active = bool(metadata.get("demo") or self.demo_mode)
+        self._configure_demo_runtime(demo_active)
 
         run_goal: Optional[str] = None
         if isinstance(metadata, dict):
@@ -131,6 +139,7 @@ class BrowserWorker:
         error: Optional[str] = None
         failure_dom_path: Optional[str] = None
         failure_screenshot_path: Optional[str] = None
+        demo_fast_success = False
 
         session = await self._ensure_session()
         secure_area_detection: Dict[str, Any] | None = None
@@ -214,6 +223,9 @@ class BrowserWorker:
                         screenshot_path = detection.get("screenshot")
                         if screenshot_path and screenshot_path not in screenshots:
                             screenshots.append(screenshot_path)
+                        if self._demo_active:
+                            demo_fast_success = True
+                            break
                 if action_result.failed():
                     error = action_result.error or "action_failed"
                     failure_dom_path = failure_dom_path or (action_result.details or {}).get("dom_path")
@@ -231,6 +243,10 @@ class BrowserWorker:
         completion_reason = "browser actions completed" if error is None else error
         if secure_area_detection:
             completion_reason = "secure_area_detected"
+        if demo_fast_success:
+            completion_reason = "demo_success"
+            print("[DEMO] Fast success — secure login detected!")
+            error = None
         completion = build_completion(
             complete=error is None,
             reason=completion_reason,
@@ -264,6 +280,20 @@ class BrowserWorker:
 
         self._mission_instruction = mission_instruction
         self._subgoal_description = subgoal_description
+
+    def _configure_demo_runtime(self, active: bool) -> None:
+        self._demo_active = active
+        if active:
+            self.default_wait_time = None
+            self.skip_retries = True
+        else:
+            self.default_wait_time = None
+            self.skip_retries = False
+
+    def _cap_timeout(self, timeout: int) -> int:
+        if timeout <= 0:
+            return 1
+        return timeout
 
     async def _perform_action(
         self,
@@ -331,7 +361,8 @@ class BrowserWorker:
             html, layout = self._record_dom(local_content, step_index)
             return ActionResult(dom_snapshot=html, layout_graph=layout)
         last_exc: Exception | None = None
-        for attempt in range(1, self.retry_limit + 2):
+        allowed_attempts = 1 if self.skip_retries else (self.retry_limit + 1)
+        for attempt in range(1, allowed_attempts + 1):
             try:
                 if session:
                     page = session.page
@@ -371,7 +402,7 @@ class BrowserWorker:
             details["mode"] = "dry_run"
             return ActionResult(details=details)
         page = session.page
-        timeout = int(action.get("timeout") or 5000)
+        timeout = self._cap_timeout(int(action.get("timeout") or 8000))
         try:
             await page.fill(selector, text_value, timeout=timeout)
         except Exception as exc:  # noqa: BLE001
@@ -391,7 +422,7 @@ class BrowserWorker:
         if not session:
             details["mode"] = "dry_run"
             return ActionResult(details=details)
-        timeout = int(action.get("timeout") or 5000)
+        timeout = self._cap_timeout(int(action.get("timeout") or 5000))
         page = session.page
         try:
             await page.click(selector, timeout=timeout)
@@ -408,7 +439,7 @@ class BrowserWorker:
         action_name = (action.get("action") or "").lower()
         default_state = "networkidle" if action_name == "wait_for_navigation" else "load"
         mode = (action.get("state") or default_state).lower()
-        timeout = int(action.get("timeout") or 8000)
+        timeout = self._cap_timeout(int(action.get("timeout") or 5000))
         if not session:
             return ActionResult(details={"state": mode, "mode": "dry_run", "timeout_ms": timeout})
         try:
@@ -426,7 +457,7 @@ class BrowserWorker:
         selector = (action.get("selector") or "").strip()
         if not selector:
             return ActionResult(status="failed", error="wait_missing_selector")
-        timeout = int(action.get("timeout") or 5000)
+        timeout = self._cap_timeout(int(action.get("timeout") or 5000))
         state = (action.get("state") or "visible").lower()
         if not session:
             return ActionResult(details={"selector": selector, "state": state, "mode": "dry_run"})
@@ -465,7 +496,7 @@ class BrowserWorker:
             html_source=resolver_html,
             action=action,
         )
-        timeout_ms = int(action.get("timeout") or 8000)
+        timeout_ms = self._cap_timeout(int(action.get("timeout") or 8000))
         page = session.page if session else None
         if page:
             try:
@@ -1011,6 +1042,17 @@ class BrowserWorker:
             await asyncio.sleep(0.1)
         finally:
             await self.shutdown()
+
+    async def run_skill(self, skill_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        skill = get_skill(skill_name)
+        if not skill:
+            raise ValueError(f"Skill '{skill_name}' is not registered")
+        session = await self._ensure_session()
+        if not session:
+            raise RuntimeError("Browser session is not available")
+        skill_context = dict(context)
+        skill_context["page"] = session.page
+        return await skill.execute(skill_context)
 
     async def _ensure_session(self) -> BrowserSession | None:
         if not self.enable_playwright or async_playwright is None:

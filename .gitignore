@@ -22,9 +22,14 @@ pytest_cache/
 
 # Playwright artifacts
 artifacts/
+artifacts_demo/
 playwright/.cache/
 tmp_run/
 runs/
+memory_logs/
+
+# Local binaries
+python.exe
 
 # IDE
 .vscode/

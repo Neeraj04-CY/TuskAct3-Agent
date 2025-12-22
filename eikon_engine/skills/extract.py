@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .base import SkillBase
+from .base import Skill
 
 
-class ExtractSkill(SkillBase):
+class ExtractSkill(Skill):
     name = "extract"
     description = "Suggests DOM extraction subgoals for dashboard/reporting pages."
+
+    async def execute(self, context):
+        return {
+            "status": "noop",
+            "skill": self.name,
+            "context": list((context or {}).keys()),
+        }
 
     def suggest_subgoals(self, state: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
         state = state or {}

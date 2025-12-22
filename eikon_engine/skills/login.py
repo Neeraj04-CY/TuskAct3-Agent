@@ -1,40 +1,33 @@
-from __future__ import annotations
+from typing import Any, Dict
 
-from typing import Any, Dict, List
-
-from .base import SkillBase
+from .base import Skill
 
 
-class LoginSkill(SkillBase):
-    name = "login"
-    description = "Ensures login steps are prioritized when auth gates are detected."
+class LoginFormSkill(Skill):
+    name = "login_form_skill"
 
-    def suggest_subgoals(self, state: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
-        state = state or {}
-        mode = (state.get("mode") or "").lower()
-        intent = state.get("intent")
-        intent_name = getattr(intent, "intent", intent)
-        if mode not in {"login_page", "auth_gate"} and intent_name not in {"login", "auth"}:
-            return []
-        return [
-            {
-                "name": "complete_login",
-                "type": "auth",
-                "reason": "LoginSkill detected authentication gate",
-                "selectors": state.get("login_selectors") or ["input[name='username']", "input[name='password']"],
-            }
-        ]
+    async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        page = context["page"]
+        username = context["username"]
+        password = context["password"]
+        target_url = context.get("url")
 
-    def suggest_repairs(self, failure: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
-        failure_text = (failure or {}).get("reason", "").lower()
-        if any(token in failure_text for token in {"unauthorized", "login", "credential"}):
-            return [
-                {
-                    "action": "reset_session",
-                    "reason": "Credentials rejected, requesting new session",
-                }
-            ]
-        return []
+        if target_url:
+            try:
+                current_url = page.url
+            except Exception:
+                current_url = None
+            if not current_url or target_url not in current_url:
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
 
+        await page.wait_for_selector("input#username", timeout=6000)
+        await page.fill("input#username", username)
+        await page.wait_for_selector("input#password", timeout=6000)
+        await page.fill("input#password", password)
+        await page.wait_for_selector("button#submit", timeout=6000)
+        await page.click("button#submit")
 
-__all__ = ["LoginSkill"]
+        return {
+            "status": "success",
+            "skill": self.name,
+        }

@@ -8,7 +8,9 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Dict
+
+from eikon_engine.config_loader import load_settings
 
 from .mission_executor import MissionExecutor, run_mission_sync
 from .mission_schema import MissionSpec
@@ -38,6 +40,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Keep the Playwright browser open after mission completion",
     )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run in fast demo mode (less waiting, skip retries)",
+    )
     return parser.parse_args(argv)
 
 
@@ -55,13 +62,17 @@ def main(argv: list[str] | None = None) -> int:
         execute=args.execute,
     )
     artifacts_dir = Path(args.artifacts_dir)
-    executor = _resolve_executor(artifacts_dir, debug_browser=args.debug_browser)
+    executor = _resolve_executor(
+        artifacts_dir,
+        debug_browser=args.debug_browser,
+        demo=args.demo,
+    )
     result = run_mission_sync(spec, executor=executor)
     print(json.dumps(result.model_dump(mode="json"), indent=2))
     return 0 if result.status == "complete" else 1
 
 
-def _resolve_executor(artifacts_dir: Path, *, debug_browser: bool = False) -> MissionExecutor:
+def _resolve_executor(artifacts_dir: Path, *, debug_browser: bool = False, demo: bool = False) -> MissionExecutor:
     hook = os.environ.get(_TEST_EXECUTOR_ENV)
     if hook:
         module_name, _, attr = hook.partition(":")
@@ -70,8 +81,32 @@ def _resolve_executor(artifacts_dir: Path, *, debug_browser: bool = False) -> Mi
         executor = factory(artifacts_dir)
         if hasattr(executor, "debug_browser"):
             setattr(executor, "debug_browser", debug_browser)
+        _apply_demo_config(executor, artifacts_dir, demo)
         return executor
-    return MissionExecutor(artifacts_root=artifacts_dir, debug_browser=debug_browser)
+    settings = _build_executor_settings(artifacts_dir, demo)
+    return MissionExecutor(
+        settings=settings,
+        artifacts_root=artifacts_dir,
+        debug_browser=debug_browser,
+    )
+
+
+def _build_executor_settings(artifacts_dir: Path, demo: bool) -> Dict[str, Any]:
+    settings = load_settings()
+    logging_cfg = settings.setdefault("logging", {})
+    logging_cfg["artifact_root"] = str(artifacts_dir)
+    settings["demo"] = demo
+    return settings
+
+
+def _apply_demo_config(executor: Any, artifacts_dir: Path, demo: bool) -> None:
+    settings = getattr(executor, "settings", None)
+    if isinstance(settings, dict):
+        logging_cfg = settings.setdefault("logging", {})
+        logging_cfg["artifact_root"] = str(artifacts_dir)
+        settings["demo"] = demo
+    elif demo:
+        setattr(executor, "demo_mode", True)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised via CLI test
