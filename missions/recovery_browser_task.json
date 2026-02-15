@@ -1,0 +1,30 @@
+{
+  "name": "recovery_browser_task",
+  "objective": "Navigate the HerokuApp login workflow, detect blockers, and still deliver the dashboard screenshot even if the DOM shifts mid-run.",
+  "constraints": {
+    "rules": [
+      "Stay within the public HerokuApp login surface and use only built-in Strategist heuristics",
+      "Record every blocker or skip condition as traceable telemetry",
+      "Capture evidence of the initial failure signature and of the recovery attempt"
+    ],
+    "disable_login_skill": true,
+    "disable_login_chain": true
+  },
+  "environment": {
+    "type": "browser",
+    "entry_url": "https://the-internet.herokuapp.com/login",
+    "notes": "The markup intentionally drifts, forcing Strategist V2 to replan and retry before the dashboard is captured."
+  },
+  "artifact_prefix": "recovery_mission",
+  "allow_sensitive": false,
+  "execute": true,
+  "timeout_secs": 900,
+  "max_retries": 2,
+  "ask_on_uncertainty": false,
+  "autonomy_budget": {
+    "max_steps": 80,
+    "max_retries": 5,
+    "max_duration_sec": 600.0,
+    "max_risk_score": 0.95
+  }
+}

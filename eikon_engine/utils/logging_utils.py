@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .file_ops import append_jsonl, write_bytes, write_text
+
+UTC = timezone.utc
 
 
 class ArtifactLogger:

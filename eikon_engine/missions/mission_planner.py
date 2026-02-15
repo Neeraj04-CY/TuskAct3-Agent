@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import quote_plus, urlparse
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-from urllib.parse import urlparse
 
 from eikon_engine.planning.planner_v3 import plan_from_goal
 
@@ -18,6 +18,7 @@ _LOGIN_KEYWORDS = ("login", "log in", "sign in", "signin")
 _LOGIN_USERNAME = "student"
 _LOGIN_PASSWORD = "Password123"
 _DEMO_LOGIN_HTML = Path(__file__).resolve().parents[2] / "examples" / "demo_local_testsite" / "login.html"
+_DEFAULT_SEARCH_ENGINE = "https://duckduckgo.com/?q="
 
 
 class MissionPlanningError(RuntimeError):
@@ -37,11 +38,34 @@ def plan_mission(mission_spec: MissionSpec, *, settings: Optional[Dict[str, Any]
         raise MissionPlanningError("planner_empty")
     mission_url = _extract_mission_url(mission_spec.instruction)
     mission_url = _override_demo_navigation_url(mission_url, mission_spec, settings)
+    if not mission_url:
+        search_url = _build_default_search_url(mission_spec.instruction)
+        safe_context = dict(safe_context or {})
+        safe_context.setdefault("default_url", search_url)
+        known_urls = list(safe_context.get("known_urls") or [])
+        if search_url not in known_urls:
+            safe_context["known_urls"] = [search_url] + known_urls
+        plan = plan_from_goal(mission_spec.instruction, context=safe_context)
+        tasks = _rewrite_navigation_targets(plan.get("tasks", []), search_url)
+        mission_url = search_url
     if mission_url:
         print("[DEBUG] Mission URL:", mission_url)
+        tasks = _rewrite_navigation_targets(tasks, mission_url)
         tasks = _remove_redundant_navigation_tasks(tasks, mission_url)
+        constraints = dict(mission_spec.constraints or {})
+        constraints.setdefault("default_url", mission_url)
+        known_urls = list(constraints.get("known_urls") or [])
+        if mission_url not in known_urls:
+            constraints["known_urls"] = [mission_url] + known_urls
+        mission_spec.constraints = constraints
+    constraint_flags = mission_spec.constraints if isinstance(mission_spec.constraints, dict) else {}
+    login_chain_disabled = bool(constraint_flags.get("disable_login_chain") or constraint_flags.get("disable_login_skill"))
     inject_login_chain = False
-    if _should_inject_login_chain(mission_spec.instruction, mission_url) and _has_dom_presence_task(tasks):
+    if (
+        not login_chain_disabled
+        and _should_inject_login_chain(mission_spec.instruction, mission_url)
+        and _has_dom_presence_task(tasks)
+    ):
         inject_login_chain = True
         tasks = _strip_dom_presence_tasks(tasks)
         tasks = []
@@ -55,6 +79,7 @@ def plan_mission(mission_spec: MissionSpec, *, settings: Optional[Dict[str, Any]
             "bucket": task.get("bucket"),
             "estimated_step_count": len(actions),
             "durability_score": _score_actions(actions, plan_meta.get("durability_summary", {})),
+            "capability_requirements": task.get("capabilities", []),
         }
         description = _describe_task(task, idx)
         subgoals.append(MissionSubgoal(id=f"{mission_spec.id}_sg{idx}", description=description, planner_metadata=metadata))
@@ -163,6 +188,26 @@ def _remove_redundant_navigation_tasks(tasks: List[Dict[str, Any]], mission_url:
     return filtered
 
 
+def _rewrite_navigation_targets(tasks: List[Dict[str, Any]], target_url: str) -> List[Dict[str, Any]]:
+    rewritten: List[Dict[str, Any]] = []
+    for task in tasks:
+        cloned = dict(task)
+        inputs = dict(cloned.get("inputs") or {})
+        actions = list(inputs.get("actions") or [])
+        new_actions: List[Dict[str, Any]] = []
+        for action in actions:
+            updated = dict(action)
+            if (updated.get("action") == "navigate"):
+                url = str(updated.get("url") or "")
+                if not url or "example.com" in url:
+                    updated["url"] = target_url
+            new_actions.append(updated)
+        inputs["actions"] = new_actions
+        cloned["inputs"] = inputs
+        rewritten.append(cloned)
+    return rewritten
+
+
 def _strip_dom_presence_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     stripped: List[Dict[str, Any]] = []
     for task in tasks:
@@ -220,6 +265,11 @@ def _override_demo_navigation_url(
             )
         return demo_url
     return mission_url
+
+
+def _build_default_search_url(text: str) -> str:
+    query = quote_plus(text.strip() or "web search")
+    return f"{_DEFAULT_SEARCH_ENGINE}{query}"
 
 
 __all__ = ["plan_mission", "MissionPlanningError"]

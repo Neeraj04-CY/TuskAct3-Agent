@@ -34,6 +34,13 @@ def make_run_result() -> dict:
     }
 
 
+def make_payload_only_result() -> dict:
+    return {
+        "completion": {"complete": True, "reason": "done"},
+        "dom_snapshot": "<html></html>",
+    }
+
+
 def test_queue_subgoal_with_inline_plan() -> None:
     strategist = StrategistV2(planner=StubPlanner())
     strategist.load_plan(make_plan("primary"))
@@ -69,3 +76,12 @@ async def test_queue_subgoal_triggers_planner() -> None:
     assert planner.calls == ["primary", "secondary"]
     assert strategist.has_next()
     assert strategist.peek_step()["task_id"] == "secondary_task"
+
+
+def test_on_step_result_uses_action_payload_url_when_meta_missing() -> None:
+    strategist = StrategistV2(planner=StubPlanner())
+    strategist.load_plan(make_plan("primary"))
+    run_ctx: dict[str, str | None] = {"current_url": None}
+    step = strategist.next_step()
+    strategist.on_step_result(run_ctx, step.metadata, make_payload_only_result())
+    assert run_ctx["current_url"] == "https://site"

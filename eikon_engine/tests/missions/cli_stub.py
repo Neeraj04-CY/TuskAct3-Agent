@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
+UTC = timezone.utc
 from eikon_engine.missions.mission_schema import MissionResult, MissionSpec, MissionSubgoalResult
 
 

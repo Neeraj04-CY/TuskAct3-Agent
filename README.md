@@ -1,12 +1,14 @@
 <div align="center">
 
-# EIKON ENGINE
+# TuskAct3 v4.6 — Goal-Driven Autonomous Research Engine
+
+**Status: Finalized Core Engine**
 
 [![CI](https://github.com/Neeraj04-CY/TustAct3-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Neeraj04-CY/TustAct3-Agent/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-live-blue)](docs/index.html)
 [![Demo Assets](https://img.shields.io/badge/demo-heroku_sample-success)](docs/artifacts.md)
 
-> Self-growing agent stack that plans, executes, learns new skills, and ships deterministic evidence for every run.
+> Goal-driven autonomous research engine with real-browser execution and deterministic evidence for every run.
 
 </div>
 
@@ -61,6 +63,16 @@ When it finishes you can open `docs/index.html` locally or push to GitHub Pages 
 
 ---
 
+## Runtime requirements
+
+- **Python 3.10.x only.** Playwright and the BrowserWorker now assert `sys.version_info < (3, 11)` so missions fail fast if you try to run under Python 3.11+ (3.13 is known-broken).
+- **Pinned toolchain.** Use `pyenv local 3.10.7` (or the bundled `.venv`) before running demos, then `python -m playwright install` to provision Chromium.
+- **Diagnostics.** The BrowserWorker logs the Python executable, Playwright version, Chromium binary, headless mode, and OS once per mission. Check the mission logs if startup fails.
+
+See `docs/dev_notes.md` for founder-facing context on the runtime lock and troubleshooting tips.
+
+---
+
 ## Manual setup (if you prefer to step through)
 
 ```bash
@@ -73,6 +85,13 @@ python run_demo_goal.py --goal "Log into the Heroku test site and capture the Se
 Copy the resulting `runs/<timestamp>` folder into `docs/artifacts/<slug>` and update `docs/assets/demo.gif` / `docs/json_viewer.html` paths as needed. The helper script `scripts/generate_demo_assets.py` shows the exact copying rules.
 
 ---
+
+## Resume halted missions (v4.1)
+
+- Any `halted` or `ask_human` stop now writes `resume_checkpoint.json` inside the mission artifacts folder with pending subgoals, last intent/url, and capability snapshots.
+- Resume a prior run with `python -m eikon_engine.missions.cli --resume <checkpoint-path-or-mission-id> --artifacts-dir artifacts`, which restores the mission id, skips completed subgoals, and replays the lifecycle in the trace.
+- Trace summaries gain a Lifecycle section showing `mission_halted`, `resume_loaded`, and `resume_completed` events for auditors.
+- Learning logs mark resumed runs as `resumed_success` or `resumed_failure` so analytics can separate fresh vs. resumed performance.
 
 ## Quick Heroku Login Demo (Recording-Friendly)
 
@@ -102,6 +121,97 @@ Use this when you only need a fast visual proof. The full autonomy missions/agen
 - **Proof it works** – rerun any mission twice. The first run writes a memory entry; the second detects the prior success, loads the login skill, and completes faster while logging the reused skill.
 
 This fulfills the v2 mandate: *“TuskAct3 remembers past missions and reuses learned skills instead of starting from scratch.”*
+
+## v3: Execution Traces
+
+- **Always-on recorder** – every mission now spins up an `ExecutionTraceRecorder` at launch. The recorder captures mission metadata, subgoal attempts, atomic browser actions, skills fired, and the artifacts that land on disk. Trace payloads are versioned (`trace_version: "v3.1"`) and saved under `traces/trace_<timestamp>_<mission_id>/trace.json`.
+- **Structured subgoal + action history** – each retry creates a `SubgoalTrace` with its own attempt number, timestamps, actions, and errors. BrowserWorker streams `ActionTrace` entries with action type, selector/target, masked inputs, outcome, duration, and raw metadata so reviewers can replay every click/fill/wait.
+- **Failure + skill forensics** – mission timeouts, planner explosions, retry loops, and secure-area aborts emit `FailureRecord` rows (including retryable flags) while skills push `SkillUsage` entries tied back to the subgoal that invoked them. Login skills, repairs, and future tools all surface in the same `skills_used[]` feed.
+- **Persistence-first contract** – mission summaries now embed the trace path, and `run_mission` aborts if the trace cannot be written (`No trace = no mission`). Planning failures and crashes still flush their trace before the exception bubbles, giving you an auditable artifact even when runs die early.
+- **Regression guardrail tests** – `tests/trace/test_execution_trace.py` covers creation, retry logging, skill recording, and failure persistence (`test_execution_trace_created`, `test_subgoal_trace_written`, `test_skill_usage_recorded`, `test_trace_persisted_on_failure`). Add them to CI to block regressions.
+
+This fulfills the Phase 1 charter for v3: *“Every mission must emit a replayable, machine-readable execution trace.”*
+
+### v3.1 Trace Stabilization
+
+- **Readable schema** – every trace node now exposes `id`, `type`, `started_at`, `ended_at`, and `duration_ms`, plus docstrings that explain when `ExecutionTrace`, `SubgoalTrace`, `ActionTrace`, `FailureRecord`, `SkillUsage`, and `ArtifactRecord` are created and sealed.
+- **Deterministic ordering + completeness** – recorder-enforced ordering sorts subgoals by their first timestamp, actions by execution sequence, and failures by the exact moment they occurred. Completeness checks flag unfinished attempts, missing action statuses, retry failures without reasons, or subgoal-less skill usages, marking traces as `incomplete: true` with top-level warnings when violations occur.
+- **Trace summaries** – each persisted trace now includes a sibling `trace_summary.txt` generated solely from the JSON (duration, counts, skill inventory, recovered failures, final status). Demo tooling can link to both the machine-readable and human summaries.
+
+## v4 (In Progress): Learning & Adaptation
+
+TuskAct3 v4 introduces a learning layer that observes completed missions, scores skill effectiveness, and persists memory for future decisions.
+
+Learning is:
+- Post-execution only
+- Deterministic
+- Fully inspectable
+- Replay-safe
+
+New scaffolding (Phase 0):
+- `learning_logs/<mission_id>.json` written after mission completion with skill usage, failures, confidence, and trace references.
+- `eikon_engine/learning` contains the record schema, scorer, recorder, and reader utilities for human-readable inspection.
+- Strategist exposes a no-op `learning_hints` hook to accept hints later without altering current behavior.
+- **Integrity tests** – `tests/trace/test_trace_integrity.py` runs a mocked mission, ensures action traces exist, and asserts both `trace.json` and `trace_summary.txt` are emitted with the expected version header.
+
+### How TuskAct3 Learns (v4)
+
+- **What updates** – the learning layer only ranks skills per mission-type. Each run appends evidence (success rate, steps saved, observed confidence) to `learning_logs/` and recalculates priorities plus average confidence per skill.
+- **What never changes** – strategist logic, mission goals, and worker code paths are untouched by learning. There is no hidden mutation of prompts or plans; biasing simply reorders the `preferred_skills` list that already exists.
+- **When it happens** – mission execution finishes, traces persist, and only then does the recorder score the run and update the learning index. Live executions never mutate mid-flight.
+- **Why replay stays deterministic** – every trace still captures the exact actions and metadata used during execution. Learning artifacts (`learning_diff.json`, `learning_summary.txt`) are written alongside the mission directory without editing the trace or result payloads, so replays still consume the original immutable data.
+- **Guardrails against silent regressions** – artifact diffs list only real metric shifts (priority, confidence, success rate). Empty diffs prove no change, and the summary explains the same numbers in plain English. CI tests assert that learning-only artifacts do not modify traces, so any regression would fail loudly instead of altering missions silently.
+
+### v3.2 Deterministic Replay & Trust Signals
+
+- **Replay CLI (`python -m eikon_engine.replay --trace traces/.../trace.json`)** – rehydrate any mission headlessly or headfully, re-run every recorded action, replay the attached skill, and emit fresh artifacts under `replay_artifacts/<mission_id>/`. Divergences (`selector mismatch`, `skill output mismatch`, etc.) halt execution immediately and surface inside `replay_summary.txt`.
+- **Decision attribution log (`trace_decisions.json`)** – every trace now ships with a structured ledger of page intents, skill invocations, subgoal outcomes, and failure metadata plus aggregated confidence and risk flags. Reviewer dashboards can consume this JSON directly without scraping Markdown summaries.
+- **Confidence + risk scoring** – the decision report normalizes page-intent confidences, adds `low_confidence`, `failures_recorded`, `retries_detected`, or `trace_incomplete` flags, and classifies failures into human-readable buckets (timeout, planner, strategy violation, retryable, etc.).
+- **Canonical mission manifest** – `config/canonical_missions.json` locks the review-ready missions (`yc_listing`, `heroku_secure_area`, `docs_artifact_audit`). Run any of them via `python -m eikon_engine.missions.cli --canonical yc_listing --artifacts-dir artifacts/yc_run_v3` to guarantee identical planner inputs across contributors.
+- **Replay tests + failure demo** – `tests/replay/test_deterministic_replay.py` stubs the browser worker to ensure the engine validates per-step behavior and surfaces divergences. Pair it with `python -m eikon_engine.replay --trace ...` to demo a captured failure end-to-end.
+
+## v4 Phase 2 — Human Approval Loop
+
+- **Gated execution** – pass `--require-approval` to `run_mission.py` (or the mission CLI) to pause before risky subgoals. Configure `--approval-timeout` (seconds) and `--auto-approve-low-risk` for low-risk auto-passes. All approval requests land in `approval_request.json` inside the mission artifacts directory and are linked from `trace_summary.txt` and `mission_result.json`.
+- **Resolve via CLI** – approve or reject by id with `python -m eikon_engine.approval approve <approval_id>` or `... reject <approval_id>`. The tool scans `artifacts/` (or `logging.artifact_root` from settings) to locate the pending request and writes the decision back with timestamps and resolver info.
+- **Trace accountability** – approval requests and resolutions are recorded in the execution trace (`approvals_requested[]`, `approvals_resolved[]`) and show up in summaries, keeping governance auditable alongside capability and learning signals.
+
+## v4 Phase 2 — Aggressive Learning Mode
+
+- **Learning override** – planner outputs are advisory; the executor runs a learning review that can reorder, replace, or skip steps based on the Learning Impact Score (LIS). Decisions are explicit and logged, never silent.
+- **Refusal safety** – when LIS drops below the hard floor (default `-0.6`), the mission halts with `refused_by_learning`. No worker actions execute; traces capture the justification and conflict snapshot.
+- **Scoring + persistence** – LIS combines historical success/failure, confidence, and recency into a bounded `[-1.0, 1.0]` score and persists to `learning_index.json` for inspection.
+- **Trace accountability** – every override emits `learning_event` entries with the original step, decision type, learning score, confidence, and evidence. `learning_diff.json` and `learning_summary.txt` remain alongside the execution trace.
+- **Decision explanations** – whenever learning changes execution (override, refusal, or bias-only), the executor writes `learning_decision_explanation.json` next to `mission_result.json` and links it inside `trace_summary.txt` for one-click review.
+- **Override engine** – conflicts are detected when planner steps score below the override threshold or ignore high-confidence skills. Decisions span `ACCEPT`, `REORDER`, `REPLACE_WITH_SKILL`, `SKIP`, or `REFUSE`, always with reasons and evidence.
+- **Why safer** – the planner is prevented from repeating failing patterns, low-confidence paths are short-circuited, and reviewers get deterministic artifacts describing exactly why learning intervened.
+
+### v3.0 — Capability Registry (Read-Only)
+
+TuskAct3 now maintains an explicit registry of system capabilities, separate from skills and execution logic. Capabilities describe what the agent can do; skills describe how it is done. This phase records capability usage for transparency and future planning without altering runtime behavior. The registry is static, registry-driven, and does not change planner, execution, or learning decisions.
+
+Example explanation artifact:
+
+```json
+{
+	"mission_id": "mission_20260113_120000",
+	"decision_type": "override",
+	"learning_impact_score": -0.42,
+	"confidence_score": 0.78,
+	"triggering_signals": [{"skill": "login_form_skill", "success_rate": 0.42, "failures": 3, "evidence": "learning_override"}],
+	"planner_conflict": true,
+	"final_resolution": "override_applied",
+	"summary": "Learning override applied (learning_override); impact_score=-0.42."
+}
+```
+
+## Phase 4: Autonomy Guardrails & Budgets
+
+- **Mission budgets** – every run now hydrates an `AutonomyBudget` (defaults: 30 steps / 3 retries / 120s / 0.4 risk). The executor tracks steps, retries, elapsed time, and derived risk per attempt. Exceeding any limit halts the mission with a `HALTED` termination block plus a fully serialized budget snapshot inside both the summary and `mission_result.json`.
+- **Safety contracts** – pass `--safety-contract '{"blocked_actions": ["download_file"]}'` or embed the same structure in `config/canonical_missions.json`. The executor inspects every recorded action and will either halt or escalate to `ASK_HUMAN` whenever a blocked action, out-of-policy action, or confirmation-only operation (e.g., `submit_form`, `execute_script`) is attempted.
+- **Low-confidence handoffs** – `--ask-on-uncertainty` (or `"ask_on_uncertainty": true` in canonical entries) watches rolling page-intent confidence and the computed risk score. Runs that stay below 0.4 confidence or approach the configured risk cap flip to the new `ask_human` mission status so a reviewer can intervene with full trace evidence.
+- **CLI guardrails** – combine granular knobs: `--budget-max-steps 12 --budget-max-duration 45 --budget-max-risk 0.25 --autonomy-budget '{"max_retries":1}' --ask-on-uncertainty --safety-contract '{"allowed_actions":["navigate","screenshot"]}'`. Canonical manifests accept the same fields so review builds stay deterministic.
+- **Cost + reason summaries** – every summary now emits `autonomy_budget`, `cost_estimate` (USD, based on steps/retries/time/risk), `reason_summary`, and a rich `termination` payload describing why the agent halted, escalated, or completed. These fields propagate into artifacts, traces, and CLI output so dashboards and reviewers can quantify trust decisions instantly.
 
 ---
 

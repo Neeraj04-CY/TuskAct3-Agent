@@ -20,8 +20,10 @@ class BrowserAction(TypedDict, total=False):
     url: Optional[str]
     selector: Optional[str]
     value: Optional[str]
+    text: Optional[str]
     name: Optional[str]
     timeout: Optional[int]
+    state: Optional[str]
 
 
 class BrowserWorkerResult(TypedDict):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, List, Sequence
@@ -18,6 +18,8 @@ from eikon_engine.browser.schema_v1 import RunSummary, RunTrace, StepAction
 from eikon_engine.utils import dom_utils, vision_utils
 from eikon_engine.utils import file_ops
 from eikon_engine.utils.logging_utils import ArtifactLogger
+
+UTC = timezone.utc
 
 try:  # pragma: no cover - optional runtime dependency
     from playwright.async_api import async_playwright

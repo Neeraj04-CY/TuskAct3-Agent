@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Mapping
 
 from eikon_engine.utils.file_ops import append_jsonl, write_text
 from eikon_engine.utils.logging_utils import ArtifactLogger
 from eikon_engine.workers.browser_worker import ActionResult
+
+UTC = timezone.utc
 
 
 def _serialize_action_result(action_result: ActionResult | Mapping[str, Any] | None) -> Dict[str, Any] | None:

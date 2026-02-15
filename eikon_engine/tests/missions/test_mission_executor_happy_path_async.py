@@ -46,7 +46,7 @@ async def test_mission_executor_runs_bootstrap_navigation(tmp_path: Path, monkey
     followup_subgoal = MissionSubgoal(id="sg1", description="Check login form", planner_metadata={})
     retry_subgoal = MissionSubgoal(id="sg2", description="Form: retry", planner_metadata={})
     monkeypatch.setattr(
-        "eikon_engine.missions.mission_executor.plan_mission",
+        "eikon_engine.missions.mission_planner.plan_mission",
         lambda _spec: [bootstrap_subgoal, followup_subgoal, retry_subgoal],
     )
 

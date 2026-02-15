@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .dom_features import DomFeatures, extract_dom_features
-from .page_intent import classify_page_intent
+from eikon_engine.page_intent import classify_page_intent
 
 COOKIE_KEYWORDS = {"cookie", "consent", "gdpr"}
 LOGIN_KEYWORDS = {"login", "log in", "sign in"}

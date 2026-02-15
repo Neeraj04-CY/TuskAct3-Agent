@@ -1,0 +1,55 @@
+{
+  "missions": [
+    {
+      "slug": "yc_listing",
+      "instruction": "Open https://www.ycombinator.com/companies. Find one recent startup from the current batch, extract the company name, one-line description, and founders, then save those fields as a JSON file.",
+      "timeout_secs": 900,
+      "max_retries": 2,
+      "execute": true,
+      "allow_sensitive": false,
+      "description": "Extract a YC startup listing from the public companies index.",
+      "constraints": {
+        "artifact_name": "yc_listing.json"
+      }
+    },
+    {
+      "slug": "heroku_secure_area",
+      "instruction": "Navigate to https://the-internet.herokuapp.com/login, authenticate with the demo credentials, and capture the 'You logged into a secure area!' banner as both text and a screenshot.",
+      "timeout_secs": 600,
+      "max_retries": 1,
+      "execute": true,
+      "allow_sensitive": false,
+      "description": "Drive the Heroku sample login flow and collect the secure area proof.",
+      "constraints": {
+        "username": "tomsmith",
+        "password": "SuperSecretPassword!"
+      }
+    },
+    {
+      "slug": "docs_artifact_audit",
+      "instruction": "Open the docs/artifacts/heroku_sample/run_summary.md file locally, summarize the current demo status, and save the summary as summary.json in the artifacts folder.",
+      "timeout_secs": 420,
+      "max_retries": 1,
+      "execute": false,
+      "allow_sensitive": false,
+      "description": "Audit the packaged demo artifacts without touching external sites.",
+      "constraints": {
+        "output": "docs_audit_summary.json"
+      }
+    },
+    {
+      "slug": "login_learning_demo",
+      "instruction": "Login to https://the-internet.herokuapp.com/login and capture proof",
+      "timeout_secs": 600,
+      "max_retries": 1,
+      "execute": true,
+      "allow_sensitive": true,
+      "description": "Canonical mission that demonstrates how learning signals bias execution and artifacts.",
+      "tags": [
+        "learning",
+        "login",
+        "demo"
+      ]
+    }
+  ]
+}

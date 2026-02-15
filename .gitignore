@@ -6,6 +6,7 @@ __pycache__/
 
 # Environments
 .venv/
+.venv310/
 venv/
 env/
 .env
@@ -27,6 +28,9 @@ playwright/.cache/
 tmp_run/
 runs/
 memory_logs/
+learning_logs/
+traces/
+tmp/*.json
 
 # Local binaries
 python.exe

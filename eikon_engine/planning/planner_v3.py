@@ -31,6 +31,12 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, TypedDict
 from uuid import uuid4
 from urllib.parse import urlparse
 
+from eikon_engine.capabilities.inference import (
+    plan_capability_report_for_tasks,
+    report_to_payload,
+    requirements_to_payload,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +57,7 @@ class Plan(TypedDict):
     goal: str
     tasks: List[Task]
     meta: Dict[str, Any]
+    capability_report: Dict[str, Any]
 
 
 class PlanDelta(TypedDict):
@@ -307,6 +314,12 @@ def _plan_single_goal(goal_text: str, context: Dict[str, Any]) -> Plan:
             "replanning_penalty": replanning_penalty,
         },
     }
+    report, requirements = plan_capability_report_for_tasks(tasks)
+    for task in tasks:
+        task_id = task.get("id")
+        task_requirements = requirements.get(task_id, []) if task_id is not None else []
+        task["capabilities"] = requirements_to_payload(task_requirements)
+    plan["capability_report"] = report_to_payload(report)
     logger.info(
         "Generated single-goal plan",
         extra={"plan_id": plan["plan_id"], "task_count": len(tasks), "score": plan["meta"]["score"]},
@@ -649,6 +662,12 @@ def merge_plans_sequential(plans: Sequence[Plan]) -> Plan:
             "replanning_penalty": replanning_penalty,
         },
     }
+    report, requirements = plan_capability_report_for_tasks(merged_tasks)
+    for task in merged_tasks:
+        task_id = task.get("id")
+        task_requirements = requirements.get(task_id, []) if task_id is not None else []
+        task["capabilities"] = requirements_to_payload(task_requirements)
+    merged_plan["capability_report"] = report_to_payload(report)
     logger.info(
         "Merged multi-goal plan",
         extra={"plan_id": merged_plan["plan_id"], "task_count": len(merged_tasks)},

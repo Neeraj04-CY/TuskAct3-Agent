@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
 
 from eikon_engine.core.completion import build_completion, is_complete
 from eikon_engine.core.goal_manager import Goal, GoalManager
 from eikon_engine.core.types import CompletionPayload
 from eikon_engine.utils.logging_utils import ArtifactLogger
+
+UTC = timezone.utc
 
 if TYPE_CHECKING:  # pragma: no cover
     from eikon_engine.core.strategist import Strategist

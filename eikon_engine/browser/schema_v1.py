@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, NotRequired, TypedDict
+from typing import Any, Dict, List, Literal, TypedDict
 
 
 class StepAction(TypedDict, total=False):

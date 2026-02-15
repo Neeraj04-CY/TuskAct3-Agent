@@ -24,8 +24,13 @@ class LoginFormSkill(Skill):
         await page.fill("input#username", username)
         await page.wait_for_selector("input#password", timeout=6000)
         await page.fill("input#password", password)
-        await page.wait_for_selector("button#submit", timeout=6000)
-        await page.click("button#submit")
+        submit_selector = "button[type='submit']"
+        try:
+            await page.wait_for_selector(submit_selector, timeout=6000)
+        except Exception:
+            submit_selector = "button.radius"
+            await page.wait_for_selector(submit_selector, timeout=6000)
+        await page.click(submit_selector)
 
         return {
             "status": "success",

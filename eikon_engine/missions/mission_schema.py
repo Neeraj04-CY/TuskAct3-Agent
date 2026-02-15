@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-MissionStatus = Literal["pending", "running", "complete", "failed"]
+UTC = timezone.utc
+
+MissionStatus = Literal[
+    "pending",
+    "running",
+    "complete",
+    "failed",
+    "skipped",
+    "halted",
+    "ask_human",
+    "refused_by_learning",
+]
 SubgoalStatus = MissionStatus
 
 
@@ -28,6 +39,10 @@ class MissionSpec(BaseModel):
     max_retries: int = Field(default=2, ge=0, le=5)
     allow_sensitive: bool = False
     execute: bool = False
+    autonomy_budget: Optional[Dict[str, Any]] = None
+    safety_contract: Optional[Dict[str, Any]] = None
+    ask_on_uncertainty: bool = False
+    learning_review: bool = False
 
     @field_validator("instruction")
     @classmethod
@@ -69,6 +84,7 @@ class MissionResult(BaseModel):
     subgoal_results: List[MissionSubgoalResult]
     summary: Dict[str, Any] = Field(default_factory=dict)
     artifacts_path: str
+    termination: Dict[str, Any] = Field(default_factory=dict)
 
 
 __all__ = [

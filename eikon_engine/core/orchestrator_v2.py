@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from eikon_engine.core.completion import build_completion
 from eikon_engine.core.types import CompletionPayload
 from eikon_engine.strategist.strategist_v2 import StrategistV2
 from eikon_engine.utils.logging_utils import ArtifactLogger
+
+UTC = timezone.utc
 from eikon_engine.workers.browser_worker import BrowserWorker
 
 
@@ -25,6 +27,23 @@ class OrchestratorV2:
         self.transcript = []
         run_ctx: Dict[str, Any] = {"current_url": None, "history": []}
         await self.strategist.initialize(goal)
+        bias_payload = self.strategist.learning_hints({"goal": goal})
+        if bias_payload:
+            run_ctx["learning_bias"] = bias_payload
+            requested = run_ctx.setdefault("requested_skills", [])
+            signal_index = {
+                entry.get("skill"): entry
+                for entry in bias_payload.get("signals", [])
+                if isinstance(entry, dict) and entry.get("skill")
+            }
+            for skill in bias_payload.get("preferred_skills", []):
+                if any(existing.get("name") == skill for existing in requested):
+                    continue
+                entry = {"name": skill, "reason": "learning_bias"}
+                signal = signal_index.get(skill)
+                if signal:
+                    entry["signal"] = signal
+                requested.append(entry)
         steps_run = 0
         abort_reason: Optional[str] = None
         start_time = datetime.now(UTC)

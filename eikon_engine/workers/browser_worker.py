@@ -6,13 +6,16 @@ import asyncio
 import inspect
 import json
 import logging
-from datetime import UTC, datetime
+import platform
+import sys
+from contextlib import suppress
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Mapping
+from time import perf_counter
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Mapping
 from urllib.parse import urlparse
 from urllib.request import url2pathname
-from time import perf_counter
 
 import httpx
 
@@ -29,6 +32,11 @@ from eikon_engine.skills.registry import get_skill
 from eikon_engine.utils import dom_utils, vision_utils
 from eikon_engine.utils.logging_utils import ArtifactLogger
 from eikon_engine.utils.safety_guardrails import SafetyGuardrails
+
+UTC = timezone.utc
+
+if TYPE_CHECKING:
+    from eikon_engine.trace.recorder import ExecutionTraceRecorder
 
 try:  # pragma: no cover - optional dependency
     from playwright.async_api import async_playwright
@@ -58,6 +66,10 @@ class BrowserSession:
                     await self.playwright.stop()
 
 
+class BrowserStartupError(RuntimeError):
+    """Raised when Playwright/browser initialization fails."""
+
+
 @dataclass
 class ActionResult:
     dom_snapshot: Optional[str] = None
@@ -83,6 +95,7 @@ class BrowserWorker:
         enable_playwright: bool | None = None,
         show_browser: bool | None = None,
     ) -> None:
+        assert sys.version_info < (3, 11), "BrowserWorker requires Python 3.10.x for Playwright stability"
         worker_settings = settings or {}
         browser_settings = worker_settings.get("browser", {})
         resolved_headless = bool(browser_settings.get("headless", True))
@@ -115,6 +128,10 @@ class BrowserWorker:
         self._demo_active = False
         self.default_wait_time: Optional[int] = None
         self.skip_retries = False
+        self._trace_recorder: ExecutionTraceRecorder | None = None
+        self._trace_handle: Optional[str] = None
+        self._startup_logged = False
+        self._learning_bias: Optional[Dict[str, Any]] = None
 
     async def execute(self, metadata: Dict[str, Any]) -> BrowserWorkerResult:
         """Execute the provided browser action sequence."""
@@ -130,7 +147,7 @@ class BrowserWorker:
         self._secure_area_info = None
         self._reset_login_flow_state()
 
-        actions = self._parse_actions(metadata)
+        actions = self._rewrite_example_navigation(self._parse_actions(metadata))
         steps: List[Dict[str, Any]] = []
         screenshots: List[str] = []
         dom_snapshot: Optional[str] = None
@@ -141,17 +158,39 @@ class BrowserWorker:
         failure_screenshot_path: Optional[str] = None
         demo_fast_success = False
 
-        session = await self._ensure_session()
+        session: BrowserSession | None = None
+        if self.enable_playwright:
+            await self.start_session()
+            session = self._require_session()
         secure_area_detection: Dict[str, Any] | None = None
         current_url: Optional[str] = None
         for idx, action in enumerate(actions, start=1):
             action_kind = (action.get("action") or "").lower()
             step_entry = {"id": f"s{idx}", **action}
             steps.append(step_entry)
+            action_started_at = datetime.now(UTC)
+            started_perf = perf_counter()
             allowed, block_reason = self.guardrails.check(action, current_url=current_url)
             if not allowed:
                 step_entry["status"] = "blocked"
                 step_entry["block_reason"] = block_reason
+                action_result = ActionResult(status="blocked", error=block_reason, details={"reason": block_reason})
+                action_ended_at = action_started_at
+                self._log_step_entry(self._build_step_metadata(step_entry, action), action_result)
+                await self._log_trace(
+                    step_index=idx,
+                    action_name=action_kind,
+                    url=action.get("url") if isinstance(action.get("url"), str) else None,
+                    completion=None,
+                    action_result=action_result,
+                )
+                self._record_action_trace(
+                    action,
+                    action_result,
+                    duration_ms=0.0,
+                    started_at=action_started_at,
+                    ended_at=action_ended_at,
+                )
                 continue
             try:
                 action_result = await self._perform_action(
@@ -182,6 +221,8 @@ class BrowserWorker:
                     step_index=idx,
                     last_dom=dom_snapshot,
                 )
+                action_ended_at = datetime.now(UTC)
+                elapsed_ms = self._elapsed_ms(started_perf)
                 self._log_step_entry(self._build_step_metadata(step_entry, action), action_result)
                 await self._log_trace(
                     step_index=idx,
@@ -189,6 +230,13 @@ class BrowserWorker:
                     url=action.get("url") if isinstance(action.get("url"), str) else None,
                     completion=None,
                     action_result=action_result,
+                )
+                self._record_action_trace(
+                    action,
+                    action_result,
+                    duration_ms=elapsed_ms,
+                    started_at=action_started_at,
+                    ended_at=action_ended_at,
                 )
                 break
             else:
@@ -203,6 +251,8 @@ class BrowserWorker:
                         "status": action_result.status,
                         **action_result.details,
                     })
+                action_ended_at = datetime.now(UTC)
+                elapsed_ms = self._elapsed_ms(started_perf)
                 self._log_step_entry(self._build_step_metadata(step_entry, action), action_result)
                 await self._log_trace(
                     step_index=idx,
@@ -210,6 +260,13 @@ class BrowserWorker:
                     url=action.get("url") if isinstance(action.get("url"), str) else None,
                     completion=None,
                     action_result=action_result,
+                )
+                self._record_action_trace(
+                    action,
+                    action_result,
+                    duration_ms=elapsed_ms,
+                    started_at=action_started_at,
+                    ended_at=action_ended_at,
                 )
                 self._update_login_flow_state(action, action_result)
                 if session and not secure_area_detection:
@@ -280,6 +337,21 @@ class BrowserWorker:
 
         self._mission_instruction = mission_instruction
         self._subgoal_description = subgoal_description
+
+    def set_trace_context(
+        self,
+        *,
+        trace_recorder: ExecutionTraceRecorder | None,
+        trace_handle: str | None,
+    ) -> None:
+        self._trace_recorder = trace_recorder
+        self._trace_handle = trace_handle
+
+    def clear_trace_context(self) -> None:
+        self._trace_handle = None
+
+    def set_learning_bias(self, metadata: Optional[Dict[str, Any]]) -> None:
+        self._learning_bias = dict(metadata or {}) or None
 
     def _configure_demo_runtime(self, active: bool) -> None:
         self._demo_active = active
@@ -356,6 +428,8 @@ class BrowserWorker:
         if not url_value:
             raise ValueError("navigate action missing url")
         url = str(url_value)
+        if "example.com" in url and hasattr(self, "default_url"):
+            url = getattr(self, "default_url") or url
         local_content = self._try_load_local_resource(url)
         if local_content is not None:
             html, layout = self._record_dom(local_content, step_index)
@@ -403,10 +477,19 @@ class BrowserWorker:
             return ActionResult(details=details)
         page = session.page
         timeout = self._cap_timeout(int(action.get("timeout") or 8000))
+        resolved_selector = await self._resolve_fill_selector(selector, page)
         try:
-            await page.fill(selector, text_value, timeout=timeout)
+            await page.fill(resolved_selector, text_value, timeout=timeout)
         except Exception as exc:  # noqa: BLE001
-            return ActionResult(status="failed", error="fill_failed", details={**details, "exception": str(exc)})
+            if resolved_selector != selector:
+                try:
+                    await page.fill(selector, text_value, timeout=timeout)
+                except Exception:
+                    return ActionResult(status="failed", error="fill_failed", details={**details, "exception": str(exc)})
+            else:
+                return ActionResult(status="failed", error="fill_failed", details={**details, "exception": str(exc)})
+        if resolved_selector != selector:
+            details["resolved_selector"] = resolved_selector
         return ActionResult(details=details)
 
     async def _handle_click(
@@ -676,6 +759,26 @@ class BrowserWorker:
         payload["attempted"] = True
         return payload
 
+    def _rewrite_example_navigation(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not actions:
+            return actions
+        default_url = getattr(self, "default_url", None)
+        if not default_url:
+            return actions
+
+        rewritten: List[Dict[str, Any]] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                rewritten.append(action)
+                continue
+            updated = dict(action)
+            if (updated.get("action") or "").lower() == "navigate":
+                url = str(updated.get("url") or "")
+                if not url or "example.com" in url:
+                    updated["url"] = default_url
+            rewritten.append(updated)
+        return rewritten
+
     def _build_snapshot_failure_details(
         self,
         selectors: List[str],
@@ -942,6 +1045,91 @@ class BrowserWorker:
             metadata["details"] = step_entry["details"]
         return metadata
 
+    def _record_action_trace(
+        self,
+        action: BrowserAction,
+        action_result: ActionResult,
+        *,
+        duration_ms: float,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> None:
+        if not self._trace_recorder or not self._trace_handle:
+            return
+        action_kind = (action.get("action") or "").lower()
+        selector = action.get("selector")
+        selector_value = str(selector) if isinstance(selector, str) and selector else None
+        target = self._resolve_action_target(action)
+        recorder_metadata = self._build_action_metadata(action_result)
+        self._trace_recorder.record_action(
+            self._trace_handle,
+            action_type=action_kind,
+            selector=selector_value,
+            target=target,
+            input_data=self._extract_input_payload(action),
+            status=action_result.status,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_ms=duration_ms,
+            metadata=recorder_metadata,
+        )
+
+    @staticmethod
+    def _elapsed_ms(started: float) -> float:
+        return round((perf_counter() - started) * 1000, 2)
+
+    def _resolve_action_target(self, action: BrowserAction) -> Optional[str]:
+        url = action.get("url")
+        if isinstance(url, str) and url:
+            return url
+        target = action.get("target")
+        if isinstance(target, str) and target:
+            return target
+        selector = action.get("selector")
+        if isinstance(selector, str) and selector:
+            return selector
+        return None
+
+    def _extract_input_payload(self, action: BrowserAction) -> Optional[str]:
+        kind = (action.get("action") or "").lower()
+        if kind not in {"fill", "type"}:
+            return None
+        value = action.get("text")
+        if value is None:
+            value = action.get("value")
+        if value is None:
+            return None
+        mask_flag = action.get("mask_input")
+        if mask_flag is False:
+            return str(value)
+        return "***"
+
+    async def _resolve_fill_selector(self, selector: str, page: Any) -> str:
+        normalized = (selector or "").strip()
+        if not normalized:
+            return selector
+        if normalized.lower() != "input":
+            return normalized
+        preferred = "input:not([type]), input[type='text'], input[type='search'], input[type='email'], input[type='url'], textarea"
+        try:
+            count = await page.locator(preferred).count()
+        except Exception:
+            count = 0
+        if count:
+            return preferred
+        return normalized
+
+    @staticmethod
+    def _build_action_metadata(action_result: ActionResult) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if action_result.error:
+            payload["error"] = action_result.error
+        if action_result.details:
+            payload["details"] = action_result.details
+        if action_result.payload:
+            payload["payload"] = action_result.payload
+        return payload
+
     def _reset_login_flow_state(self) -> None:
         self._login_flow_state = {
             "username_filled": False,
@@ -1047,35 +1235,85 @@ class BrowserWorker:
         skill = get_skill(skill_name)
         if not skill:
             raise ValueError(f"Skill '{skill_name}' is not registered")
-        session = await self._ensure_session()
-        if not session:
-            raise RuntimeError("Browser session is not available")
+        await self.start_session()
+        session = self._require_session()
         skill_context = dict(context)
         skill_context["page"] = session.page
+        if self._learning_bias:
+            skill_context.setdefault("learning_bias", self._learning_bias)
         return await skill.execute(skill_context)
 
-    async def _ensure_session(self) -> BrowserSession | None:
-        if not self.enable_playwright or async_playwright is None:
-            return None
+    async def start_session(self) -> BrowserSession:
         if self._session:
             return self._session
-        playwright = await async_playwright().start()
-        launch_args = [
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-        ]
-        browser = await playwright.chromium.launch(
-            headless=self.headless,
-            slow_mo=self.slow_mo,
-            args=launch_args,
+        if not self.enable_playwright:
+            raise BrowserStartupError("Playwright has been disabled for this worker")
+        if async_playwright is None:
+            raise BrowserStartupError("Playwright is not installed. Run 'python -m playwright install'")
+        playwright_instance = await async_playwright().start()
+        try:
+            self._log_startup_diagnostics(playwright_handle=playwright_instance)
+            launch_args = [
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
+            browser = await playwright_instance.chromium.launch(
+                headless=self.headless,
+                slow_mo=self.slow_mo,
+                args=launch_args,
+            )
+            print("[DEBUG] Chromium launched with sandbox disabled")
+            context = await browser.new_context()
+            page = await context.new_page()
+        except Exception as exc:  # noqa: BLE001
+            with suppress(Exception):
+                await playwright_instance.stop()
+            raise BrowserStartupError(f"Failed to initialize Playwright browser session: {exc}") from exc
+        self._session = BrowserSession(
+            playwright=playwright_instance,
+            browser=browser,
+            context=context,
+            page=page,
         )
-        print("[DEBUG] Chromium launched with sandbox disabled")
-        context = await browser.new_context()
-        page = await context.new_page()
-        self._session = BrowserSession(playwright=playwright, browser=browser, context=context, page=page)
         return self._session
+
+    def _require_session(self) -> BrowserSession:
+        session = self._session
+        if (
+            not session
+            or getattr(session, "page", None) is None
+            or getattr(session, "browser", None) is None
+            or getattr(session, "context", None) is None
+        ):
+            raise BrowserStartupError("Browser session not initialized")
+        return session
+
+    def _log_startup_diagnostics(self, *, playwright_handle: Any) -> None:
+        if self._startup_logged:
+            return
+        try:  # pragma: no cover - optional dependency detail
+            import playwright as playwright_pkg  # type: ignore
+
+            pw_version = getattr(playwright_pkg, "__version__", None)
+        except Exception:  # noqa: BLE001 - diagnostics best effort
+            pw_version = None
+        chromium_path = None
+        try:
+            chromium_path = getattr(playwright_handle.chromium, "executable_path", None)
+        except Exception:  # noqa: BLE001 - diagnostics best effort
+            chromium_path = None
+        payload = {
+            "python_executable": sys.executable,
+            "python_version": sys.version.replace("\n", " "),
+            "playwright_version": pw_version,
+            "chromium_executable": chromium_path,
+            "headless": self.headless,
+            "os": platform.platform(),
+        }
+        self._trace_logger.info("Browser startup diagnostics: %s", json.dumps(payload))
+        self._startup_logged = True
 
     def _parse_actions(self, metadata: Dict[str, Any]) -> List[BrowserAction]:
         action_payload = metadata.get("action", metadata)

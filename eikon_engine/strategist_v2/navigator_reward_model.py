@@ -5,7 +5,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Dict, List, Tuple
 
-from eikon_engine.strategist.page_intent import classify_page_intent
+from eikon_engine.page_intent import PageIntent, classify_page_intent
 
 OVERLAY_KEYWORDS = {"modal", "overlay", "popup", "newsletter", "subscribe", "accept cookies", "consent"}
 LOOP_KEYWORDS = {"retry", "reload", "again", "loop", "repeat"}
@@ -73,9 +73,15 @@ def _intent_alignment(old_dom: str, new_dom: str, subgoal: str | None) -> Tuple[
         completed = True
     new_intent = classify_page_intent(new_dom or "")
     old_intent = classify_page_intent(old_dom or "") if old_dom else None
-    if not completed and subgoal_lower and subgoal_lower.split()[0] in new_intent.intent:
+    new_label = new_intent.intent.value
+    if not completed and subgoal_lower and subgoal_lower.split()[0] in new_label:
         progressed = True
-    if not completed and old_intent and new_intent.intent != "unknown" and new_intent.intent != old_intent.intent:
+    if (
+        not completed
+        and old_intent
+        and new_intent.intent is not PageIntent.UNKNOWN
+        and new_intent.intent != old_intent.intent
+    ):
         progressed = True
     return progressed, completed
 

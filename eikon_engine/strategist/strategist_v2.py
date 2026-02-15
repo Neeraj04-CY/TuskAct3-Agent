@@ -15,6 +15,8 @@ from eikon_engine.core.types import CompletionPayload
 from eikon_engine.planning.memory_store import MemoryStore
 from eikon_engine.memory.memory_reader import load_all_memories
 from eikon_engine.planning.planner_v1 import PlannerV1, PlanState
+from eikon_engine.page_intent import PageIntent, PageIntentResult
+from eikon_engine.learning.index import LearningBias
 
 from .agent_memory import AgentMemory, AgentMemoryHint
 from .behavior_learner import BehaviorLearner
@@ -70,6 +72,7 @@ class StrategistBase:
         self._behavior_difficulty = 0.5
         self._stability_monitor: "StabilityMonitor | None" = None
         self._skill_registry = SkillRegistry
+        self._learning_bias: LearningBias | None = None
 
     async def initialize(self, goal: str) -> None:
         self._goal = goal
@@ -84,6 +87,7 @@ class StrategistBase:
         self._confidence_state = None
         self._recovery_severity = 0
         self._login_flow_triggered = False
+        self._latest_page_intent = PageIntent.UNKNOWN
         if self.self_repair:
             self.self_repair.reset()
         self._adaptive_plan = None
@@ -98,6 +102,14 @@ class StrategistBase:
 
     def attach_stability_monitor(self, monitor: "StabilityMonitor | None") -> None:
         self._stability_monitor = monitor
+
+    def attach_learning_bias(self, bias: LearningBias | None) -> None:
+        self._learning_bias = bias
+
+    def learning_hints(self, context: Dict[str, Any] | None = None) -> Optional[Dict[str, Any]]:
+        if not self._learning_bias:
+            return None
+        return self._learning_bias.as_metadata(context)
 
     def peek_step(self) -> StepMeta:
         if not self.has_next():
@@ -272,6 +284,7 @@ class StrategistV2(StrategistBase):
         self._last_url: str = ""
         self._recovery_counts: Dict[str, int] = {}
         self._login_flow_triggered = False
+        self._latest_page_intent: PageIntent = PageIntent.UNKNOWN
 
     def detect_state(self, dom: str, url: Optional[str] = None) -> Dict[str, Any]:
         state = detect_state(dom, url)
@@ -297,7 +310,13 @@ class StrategistV2(StrategistBase):
 
     def on_step_result(self, run_ctx: RunContext, planned_step: StepMeta, step_outcome: Dict[str, Any]) -> None:
         dom = self._load_dom_snapshot(step_outcome)
-        url = step_outcome.get("meta", {}).get("url") or planned_step.get("url") or run_ctx.get("current_url")
+        payload = planned_step.get("action_payload", {}) or {}
+        url = (
+            step_outcome.get("meta", {}).get("url")
+            or planned_step.get("url")
+            or payload.get("url")
+            or run_ctx.get("current_url")
+        )
         run_ctx["active_subgoal"] = planned_step.get("task_id") or planned_step.get("bucket")
         state = self.detect_state(dom, url)
         run_ctx["current_url"] = url or run_ctx.get("current_url")
@@ -305,13 +324,12 @@ class StrategistV2(StrategistBase):
             run_ctx.pop("_behavior_replan_logged", None)
         run_ctx["current_fingerprint"] = self._page_fingerprint(run_ctx.get("current_url"), dom)
         run_ctx.setdefault("planner_events", [])
-        payload = planned_step.get("action_payload", {})
         action = (payload.get("action") or "").lower()
         if action == "dom_presence_check" and state.get("mode") == "login_page":
             self._inject_login_flow(planned_step)
         intent = state.get("intent")
         if intent:
-            run_ctx.setdefault("page_intents", []).append({"intent": getattr(intent, "intent", "unknown"), "confidence": getattr(intent, "confidence", 0.0)})
+            self._handle_page_intent(run_ctx, planned_step, intent, action_label=action)
         run_ctx.setdefault("history", []).append({
             "step_id": planned_step.get("step_id"),
             "mode": state.get("mode"),
@@ -465,6 +483,102 @@ class StrategistV2(StrategistBase):
         for subgoal in prediction.get("recommended_subgoals", []):
             if subgoal not in suggestions:
                 suggestions.append(subgoal)
+
+    def _handle_page_intent(
+        self,
+        run_ctx: RunContext,
+        planned_step: StepMeta,
+        intent: Any,
+        *,
+        action_label: str,
+    ) -> None:
+        intent_enum: PageIntent
+        intent_payload: Dict[str, Any]
+        if isinstance(intent, PageIntentResult):
+            intent_result = intent
+            intent_enum = intent.intent
+            intent_payload = intent.as_payload()
+        else:  # pragma: no cover - legacy compatibility path
+            raw_intent = getattr(intent, "intent", intent)
+            if isinstance(raw_intent, PageIntent):
+                intent_enum = raw_intent
+                label = raw_intent.value
+            else:
+                try:
+                    intent_enum = PageIntent(str(raw_intent))
+                    label = intent_enum.value
+                except (ValueError, TypeError):
+                    intent_enum = PageIntent.UNKNOWN
+                    label = str(raw_intent) if raw_intent else PageIntent.UNKNOWN.value
+            confidence = float(getattr(intent, "confidence", 0.0) or 0.0)
+            raw_signals = getattr(intent, "signals", None)
+            signals = dict(raw_signals) if isinstance(raw_signals, dict) else {}
+            intent_result = PageIntentResult(intent=intent_enum, confidence=confidence, signals=signals)
+            intent_payload = {
+                "intent": label,
+                "confidence": round(confidence, 3),
+                "signals": signals,
+            }
+        if action_label != "navigate" and intent_enum == self._latest_page_intent:
+            return
+        step_id = planned_step.get("step_id")
+        strategy = self._strategy_for_intent(intent_enum)
+        payload = dict(intent_payload)
+        payload.update({"step_id": step_id, "strategy": strategy})
+        run_ctx.setdefault("page_intents", []).append(payload)
+        run_ctx["current_page_intent"] = payload
+        run_ctx["selected_strategy"] = strategy
+        self._latest_page_intent = intent_enum
+        if strategy in {"listing_extraction", "article_extract"} and intent_result.confidence >= 0.5:
+            run_ctx["dom_presence_blocked"] = True
+        elif strategy == "login_form":
+            run_ctx["dom_presence_blocked"] = False
+        if strategy == "listing_extraction" and self._should_request_listing_skill(intent_result):
+            self._queue_listing_skill_request(run_ctx, step_id, intent_result)
+        if intent_enum is PageIntent.UNKNOWN and action_label == "navigate":
+            run_ctx.setdefault("page_intent_warnings", []).append(payload)
+            run_ctx["force_replan"] = True
+            run_ctx["force_replan_reason"] = "unknown_page_intent"
+            self._append_trace("page_intent_unknown", step_id=step_id)
+            return
+        self._append_trace("page_intent", intent=intent_enum.value, confidence=intent_result.confidence, strategy=strategy)
+
+    def _strategy_for_intent(self, intent: PageIntent) -> str:
+        if intent is PageIntent.LOGIN_FORM:
+            return "login_form"
+        if intent is PageIntent.LISTING_PAGE:
+            return "listing_extraction"
+        if intent is PageIntent.ARTICLE_PAGE:
+            return "article_extract"
+        if intent is PageIntent.DASHBOARD:
+            return "dashboard"
+        if intent is PageIntent.DETAIL_PAGE:
+            return "detail_review"
+        return "unknown"
+
+    def _should_request_listing_skill(self, intent: PageIntentResult) -> bool:
+        if intent.intent is not PageIntent.LISTING_PAGE or intent.confidence < 0.4:
+            return False
+        goal_text = (self._goal or "").lower()
+        keywords = ("find", "extract", "companies", "company", "startup", "items", "list")
+        return any(keyword in goal_text for keyword in keywords)
+
+    def _queue_listing_skill_request(
+        self,
+        run_ctx: RunContext,
+        step_id: Optional[str],
+        intent: PageIntentResult,
+    ) -> None:
+        requests = run_ctx.setdefault("requested_skills", [])
+        if any(entry.get("name") == "listing_extraction_skill" for entry in requests):
+            return
+        requests.append({
+            "name": "listing_extraction_skill",
+            "intent": intent.intent.value,
+            "confidence": intent.confidence,
+            "step_id": step_id,
+            "reason": "page_intent_listing",
+        })
 
     def _apply_skill_suggestions(
         self,
@@ -697,6 +811,9 @@ class StrategistV2(StrategistBase):
     def should_skip_step(self, run_ctx: RunContext, planned_step: StepMeta) -> bool:
         payload = planned_step.get("action_payload", {})
         action = (payload.get("action") or "").lower()
+        if run_ctx.get("dom_presence_blocked") and action in {"dom_presence_check", "fill"}:
+            self._append_trace("skip_rule", rule="intent_block", step_id=planned_step.get("step_id"))
+            return True
         if action == "navigate":
             expected = payload.get("url")
             current = run_ctx.get("current_url")
