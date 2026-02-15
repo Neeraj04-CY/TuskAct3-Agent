@@ -36,6 +36,7 @@ from eikon_engine.capabilities.enforcement import (
     evaluate_capabilities,
 )
 from eikon_engine.judgment.evaluator import JudgmentEvaluator
+from eikon_engine.judgment.evaluator import JudgmentDecision
 from eikon_engine.missions import mission_planner as mission_planner_module
 from eikon_engine.missions.mission_planner import MissionPlanningError, _build_default_search_url
 from eikon_engine.missions.mission_schema import (
@@ -183,7 +184,9 @@ class MissionExecutor:
 
     async def run_mission(self, mission_spec: MissionSpec, *, resume_from: str | Path | None = None) -> MissionResult:
         """Execute all mission subgoals sequentially (fresh or resumed)."""
-        if resume_from is None and (mission_spec.execute or self.debug_browser):
+        constraints = mission_spec.constraints if isinstance(mission_spec.constraints, dict) else {}
+        use_goal_loop = bool(self.debug_browser or constraints.get("goal_driven_loop"))
+        if resume_from is None and mission_spec.execute and use_goal_loop:
             return await self._run_goal_driven_autonomous_loop(mission_spec)
 
         resume_checkpoint: ResumeCheckpoint | None = None
@@ -655,6 +658,42 @@ class MissionExecutor:
                         retryable=False,
                     )
                     break
+                if mission_spec.ask_on_uncertainty and (
+                    self._should_escalate_on_uncertainty(budget_monitor)
+                    or self._run_context_has_low_confidence(run_ctx)
+                ):
+                    status = "ask_human"
+                    termination_payload = self._build_termination_payload(
+                        termination_type=MissionTermination.ASK_HUMAN,
+                        reason="low_confidence",
+                        detail={
+                            "average_confidence": budget_monitor.usage.average_confidence(),
+                            "risk_score": budget_monitor.usage.risk_score,
+                        },
+                        budget_snapshot=budget_monitor.snapshot(),
+                    )
+                    summary = {
+                        "reason": "ask_on_uncertainty",
+                        "detail": termination_payload.get("detail"),
+                    }
+                    halted_subgoal_id = subgoal.id
+                    halted_reason = summary["reason"]
+                    summary["termination"] = termination_payload
+                    summary["autonomy_budget"] = termination_payload.get("budget_snapshot", {})
+                    summary["cost_estimate"] = self._estimate_cost(summary["autonomy_budget"])
+                    summary["reason_summary"] = self._build_reason_summary(
+                        status=status,
+                        summary=summary,
+                        termination=termination_payload,
+                    )
+                    budget_monitor.record_failure()
+                    trace_recorder.record_failure(
+                        failure_type="ask_on_uncertainty",
+                        message=json.dumps(summary["detail"] or {}),
+                        retryable=False,
+                    )
+                    break
+
                 exceeded, limit_reason, limit_detail = budget_monitor.limits_exceeded()
                 if exceeded:
                     if (
@@ -708,38 +747,6 @@ class MissionExecutor:
                     trace_recorder.record_failure(
                         failure_type="autonomy_budget_exceeded",
                         message=json.dumps(limit_detail),
-                        retryable=False,
-                    )
-                    break
-                if mission_spec.ask_on_uncertainty and self._should_escalate_on_uncertainty(budget_monitor):
-                    status = "ask_human"
-                    termination_payload = self._build_termination_payload(
-                        termination_type=MissionTermination.ASK_HUMAN,
-                        reason="low_confidence",
-                        detail={
-                            "average_confidence": budget_monitor.usage.average_confidence(),
-                            "risk_score": budget_monitor.usage.risk_score,
-                        },
-                        budget_snapshot=budget_monitor.snapshot(),
-                    )
-                    summary = {
-                        "reason": "ask_on_uncertainty",
-                        "detail": termination_payload.get("detail"),
-                    }
-                    halted_subgoal_id = subgoal.id
-                    halted_reason = summary["reason"]
-                    summary["termination"] = termination_payload
-                    summary["autonomy_budget"] = termination_payload.get("budget_snapshot", {})
-                    summary["cost_estimate"] = self._estimate_cost(summary["autonomy_budget"])
-                    summary["reason_summary"] = self._build_reason_summary(
-                        status=status,
-                        summary=summary,
-                        termination=termination_payload,
-                    )
-                    budget_monitor.record_failure()
-                    trace_recorder.record_failure(
-                        failure_type="ask_on_uncertainty",
-                        message=json.dumps(summary["detail"] or {}),
                         retryable=False,
                     )
                     break
@@ -1728,6 +1735,23 @@ class MissionExecutor:
             return True
         return False
 
+    def _run_context_has_low_confidence(self, run_ctx: Dict[str, Any] | None) -> bool:
+        if not isinstance(run_ctx, dict):
+            return False
+        candidates: List[Any] = []
+        candidates.append(run_ctx.get("current_page_intent"))
+        candidates.append(run_ctx.get("page_intent"))
+        intents = run_ctx.get("page_intents")
+        if isinstance(intents, list):
+            candidates.extend(intents)
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            confidence = candidate.get("confidence")
+            if isinstance(confidence, (int, float)) and float(confidence) < 0.4:
+                return True
+        return False
+
     def _maybe_skip_subgoal_for_intent(
         self,
         *,
@@ -2061,6 +2085,8 @@ class MissionExecutor:
         cfg = self._approval_cfg or {}
         if cfg.get("require_approval"):
             return True, "require_approval_flag", "medium"
+        if not mission_spec.execute:
+            return False, "", "low"
         if any(decision.decision == "ask_human" for decision in capability_enforcements):
             risk = "high" if any(dec.missing for dec in capability_enforcements) else "medium"
             return True, "capability_enforcement", risk
@@ -4107,7 +4133,12 @@ def run_mission_sync(
     """Convenience wrapper for synchronous callers (e.g., CLI)."""
 
     executor = executor or MissionExecutor()
-    return asyncio.run(executor.run_mission(mission_spec, resume_from=resume_from))
+    try:
+        return asyncio.run(executor.run_mission(mission_spec, resume_from=resume_from))
+    except TypeError as exc:
+        if "unexpected keyword argument 'resume_from'" in str(exc):
+            return asyncio.run(executor.run_mission(mission_spec))
+        raise
 
 
 def _slugify(value: str) -> str:

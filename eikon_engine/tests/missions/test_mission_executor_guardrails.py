@@ -100,4 +100,3 @@ async def test_mission_executor_asks_on_uncertainty(tmp_path: Path, monkeypatch:
     assert result.status == "ask_human"
     assert result.summary["reason"] == "ask_on_uncertainty"
     assert result.summary["termination"]["reason"] == "low_confidence"
-*** End File
