@@ -40,4 +40,4 @@ Open an issue with:
 - Steps to reproduce (goal text, env vars, command run)
 - Relevant logs or artifact paths (e.g., `runs/autonomy_demo_20250101/step_003/step.json`)
 
-Thank you for building a YC-ready autonomy stack! 💫
+Thank you for building a YC-ready autonomy stack! 
