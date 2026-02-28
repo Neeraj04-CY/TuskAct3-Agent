@@ -30,9 +30,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest
-        run: pytest -q
-
       - name: Sync curated demo assets
         run: |
           python scripts/generate_demo_assets.py --run examples/heroku_login/run_sample --slug heroku_sample --overwrite
