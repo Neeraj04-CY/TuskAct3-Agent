@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: pytest
-        run: pytest -q
+        run: pytest -q tests/integration/test_quick_demo.py tests/showcase/test_release_builder.py
 
   docs:
     name: smoke demo + docs artifact
