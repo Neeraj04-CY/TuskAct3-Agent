@@ -29,8 +29,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def _collect_frames(run_dir: Path, pattern: str) -> List[Path]:
-    frames = sorted(run_dir.glob(pattern))
-    return [frame for frame in frames if frame.is_file()]
+    frames = [frame for frame in sorted(run_dir.glob(pattern)) if frame.is_file()]
+    if frames:
+        return frames
+    fallback_patterns = ("*.png", "**/*.png")
+    for fallback in fallback_patterns:
+        fallback_frames = [frame for frame in sorted(run_dir.glob(fallback)) if frame.is_file()]
+        if fallback_frames:
+            return fallback_frames
+    return []
 
 
 def main() -> None:

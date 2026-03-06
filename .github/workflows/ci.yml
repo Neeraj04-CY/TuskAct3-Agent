@@ -50,4 +50,5 @@ jobs:
         with:
           path: docs
       - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: actions/deploy-pages@v4
